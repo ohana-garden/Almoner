@@ -187,6 +187,52 @@ async function seedPhase1() {
     `);
     console.log('   ✓ Created 1 project\n');
 
+    // 7b. Create Opportunities
+    console.log('7b. Creating Opportunities...');
+    await connection.mutate(`
+      CREATE (:Opportunity {
+        id: 'opp-1',
+        title: 'Garden Volunteer - Weekly',
+        description: 'Help maintain community garden beds, plant seedlings, and harvest produce',
+        hoursNeeded: '{"min": 2, "max": 4}',
+        schedule: 'weekly',
+        siteId: 'site-1',
+        skills: '["gardening", "physical labor"]',
+        focusAreas: '["food security", "community development"]',
+        spotsAvailable: 10,
+        lastUpdated: '${new Date().toISOString()}'
+      })
+    `);
+    await connection.mutate(`
+      CREATE (:Opportunity {
+        id: 'opp-2',
+        title: 'Food Distribution Helper',
+        description: 'Assist with sorting and distributing fresh produce to community members',
+        hoursNeeded: '{"min": 3, "max": 5}',
+        schedule: 'weekly',
+        siteId: 'site-2',
+        skills: '["organization", "customer service"]',
+        focusAreas: '["food security"]',
+        spotsAvailable: 5,
+        lastUpdated: '${new Date().toISOString()}'
+      })
+    `);
+    await connection.mutate(`
+      CREATE (:Opportunity {
+        id: 'opp-3',
+        title: 'Environmental Education Workshop',
+        description: 'One-time workshop teaching sustainable gardening practices',
+        hoursNeeded: '{"min": 4, "max": 6}',
+        schedule: 'one-time',
+        skills: '["teaching", "environment"]',
+        focusAreas: '["education", "environment"]',
+        deadline: '${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()}',
+        spotsAvailable: 20,
+        lastUpdated: '${new Date().toISOString()}'
+      })
+    `);
+    console.log('   ✓ Created 3 opportunities\n');
+
     // 8. Create Relationships
     console.log('8. Creating Relationships...');
 
@@ -228,7 +274,21 @@ async function seedPhase1() {
       CREATE (f)-[:FOCUSES_ON {id: 'rel-7', createdAt: '${new Date().toISOString()}'}]->(fa)
     `);
 
-    console.log('   ✓ Created 7 relationships\n');
+    // Org OFFERS Opportunity
+    await connection.mutate(`
+      MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-1'})
+      CREATE (o)-[:OFFERS {id: 'rel-8', createdAt: '${new Date().toISOString()}'}]->(op)
+    `);
+    await connection.mutate(`
+      MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-2'})
+      CREATE (o)-[:OFFERS {id: 'rel-9', createdAt: '${new Date().toISOString()}'}]->(op)
+    `);
+    await connection.mutate(`
+      MATCH (o:Org {id: 'org-2'}), (op:Opportunity {id: 'opp-3'})
+      CREATE (o)-[:OFFERS {id: 'rel-10', createdAt: '${new Date().toISOString()}'}]->(op)
+    `);
+
+    console.log('   ✓ Created 10 relationships\n');
 
     // 9. Verify data
     console.log('9. Verifying data...');
@@ -237,6 +297,8 @@ async function seedPhase1() {
         MATCH (n:Funder) RETURN 'Funder' as label, count(n) as count
         UNION ALL
         MATCH (n:Grant) RETURN 'Grant' as label, count(n) as count
+        UNION ALL
+        MATCH (n:Opportunity) RETURN 'Opportunity' as label, count(n) as count
         UNION ALL
         MATCH (n:Org) RETURN 'Org' as label, count(n) as count
         UNION ALL
