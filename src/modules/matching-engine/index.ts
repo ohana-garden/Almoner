@@ -84,7 +84,7 @@ export class MatchingEngine {
     const cypher = this.buildGrantMatchQuery(filters);
 
     const results = await this.connection.query<{
-      g: Grant;
+      g: Record<string, unknown>;
       funderId?: string;
       funderName?: string;
     }>(cypher, {
@@ -144,7 +144,7 @@ export class MatchingEngine {
     const cypher = this.buildScholarshipMatchQuery(filters);
 
     const results = await this.connection.query<{
-      s: Scholarship;
+      s: Record<string, unknown>;
       funderId?: string;
       funderName?: string;
     }>(cypher, {
@@ -207,7 +207,7 @@ export class MatchingEngine {
       LIMIT ${limit * 2}
     `;
 
-    const results = await this.connection.query<{ o: Org }>(cypher);
+    const results = await this.connection.query<{ o: Record<string, unknown> }>(cypher);
 
     const matches: Array<{ org: Org; score: MatchScore }> = [];
     for (const result of results) {
@@ -236,7 +236,7 @@ export class MatchingEngine {
       ORDER BY g.deadline ASC
     `;
 
-    const results = await this.connection.query<{ g: Grant }>(cypher, {
+    const results = await this.connection.query<{ g: Record<string, unknown> }>(cypher, {
       now: new Date().toISOString(),
       deadline: deadline.toISOString(),
     });
@@ -472,7 +472,7 @@ export class MatchingEngine {
    */
   private async getOrg(orgId: string): Promise<Org | null> {
     const cypher = `MATCH (o:Org {id: $orgId}) RETURN o`;
-    const results = await this.connection.query<{ o: Org }>(cypher, { orgId });
+    const results = await this.connection.query<{ o: Record<string, unknown> }>(cypher, { orgId });
     return results.length > 0 ? this.parseOrg(results[0].o) : null;
   }
 
@@ -481,7 +481,7 @@ export class MatchingEngine {
    */
   private async getPerson(personId: string): Promise<Person | null> {
     const cypher = `MATCH (p:Person {id: $personId}) RETURN p`;
-    const results = await this.connection.query<{ p: Person }>(cypher, { personId });
+    const results = await this.connection.query<{ p: Record<string, unknown> }>(cypher, { personId });
     return results.length > 0 ? this.parsePerson(results[0].p) : null;
   }
 
@@ -490,7 +490,7 @@ export class MatchingEngine {
    */
   private async getGrant(grantId: string): Promise<Grant | null> {
     const cypher = `MATCH (g:Grant {id: $grantId}) RETURN g`;
-    const results = await this.connection.query<{ g: Grant }>(cypher, { grantId });
+    const results = await this.connection.query<{ g: Record<string, unknown> }>(cypher, { grantId });
     return results.length > 0 ? this.parseGrant(results[0].g) : null;
   }
 

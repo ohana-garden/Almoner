@@ -131,7 +131,7 @@ export class CaptureManager {
   handleNfcTap(tap: NfcTapEvent, personId: string, siteMapping: Map<string, Site>): {
     action: 'start' | 'end' | 'unknown';
     session?: CaptureSession;
-    contribution?: LocalContribution;
+    contribution?: LocalContribution | null;
   } {
     const site = siteMapping.get(tap.tagId);
 
@@ -377,14 +377,25 @@ export class CaptureManager {
   }
 
   /**
+   * Check if localStorage is available (browser environment).
+   */
+  private hasLocalStorage(): boolean {
+    try {
+      return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Load state from storage (IndexedDB in browser).
    */
   private loadFromStorage(): void {
     // In browser, this would load from IndexedDB
     // Server-side or in tests, this is a no-op
-    if (typeof globalThis.localStorage !== 'undefined') {
+    if (this.hasLocalStorage()) {
       try {
-        const data = globalThis.localStorage.getItem('almoner_capture');
+        const data = window.localStorage.getItem('almoner_capture');
         if (data) {
           const parsed = JSON.parse(data);
 
@@ -420,7 +431,7 @@ export class CaptureManager {
    */
   private saveToStorage(): void {
     // In browser, this would save to IndexedDB
-    if (typeof globalThis.localStorage !== 'undefined') {
+    if (this.hasLocalStorage()) {
       try {
         const data = {
           pendingContributions: Object.fromEntries(
@@ -431,7 +442,7 @@ export class CaptureManager {
           ),
           activeSession: this.activeSession,
         };
-        globalThis.localStorage.setItem('almoner_capture', JSON.stringify(data));
+        window.localStorage.setItem('almoner_capture', JSON.stringify(data));
       } catch {
         // Ignore storage errors (quota exceeded, etc.)
       }
@@ -476,6 +487,17 @@ export class SyncService {
   }
 
   /**
+   * Check if we're in a browser environment with navigator.
+   */
+  private isOnline(): boolean {
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    // In Node.js environment, assume we're online
+    return true;
+  }
+
+  /**
    * Attempt to sync pending contributions.
    */
   async attemptSync(): Promise<SyncResult> {
@@ -484,7 +506,7 @@ export class SyncService {
     }
 
     // Check connectivity
-    if (!navigator.onLine) {
+    if (!this.isOnline()) {
       return { synced: 0, failed: 0, errors: ['No network connectivity'] };
     }
 
@@ -530,14 +552,14 @@ export class SyncService {
    * Start automatic sync when online.
    */
   startAutoSync(intervalMs: number = 60000): void {
-    // Sync on connectivity change
+    // Sync on connectivity change (browser only)
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => this.attemptSync());
     }
 
     // Periodic sync
     setInterval(() => {
-      if (navigator.onLine) {
+      if (this.isOnline()) {
         this.attemptSync();
       }
     }, intervalMs);
