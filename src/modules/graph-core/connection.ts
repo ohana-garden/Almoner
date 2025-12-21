@@ -14,10 +14,28 @@
 import { FalkorDB, Graph } from 'falkordb';
 
 export interface ConnectionConfig {
-  host: string;
-  port: number;
+  /** Redis URL (e.g., redis://host:port or redis://:password@host:port) */
+  url?: string;
+  /** Host (used if url is not provided) */
+  host?: string;
+  /** Port (used if url is not provided) */
+  port?: number;
+  /** Password (used if url is not provided) */
   password?: string;
+  /** Graph name */
   graphName: string;
+}
+
+/**
+ * Parse a Redis URL into connection components.
+ */
+function parseRedisUrl(url: string): { host: string; port: number; password?: string } {
+  const parsed = new URL(url);
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port || '6379', 10),
+    password: parsed.password || undefined,
+  };
 }
 
 /**
@@ -56,12 +74,28 @@ export class GraphConnection {
       return; // Already connected
     }
 
+    let host: string;
+    let port: number;
+    let password: string | undefined;
+
+    // Parse URL if provided, otherwise use individual components
+    if (this.config.url) {
+      const parsed = parseRedisUrl(this.config.url);
+      host = parsed.host;
+      port = parsed.port;
+      password = parsed.password;
+    } else {
+      host = this.config.host || 'localhost';
+      port = this.config.port || 6379;
+      password = this.config.password;
+    }
+
     this.client = await FalkorDB.connect({
       socket: {
-        host: this.config.host,
-        port: this.config.port,
+        host,
+        port,
       },
-      password: this.config.password,
+      password,
     });
 
     this.graph = this.client.selectGraph(this.config.graphName);
@@ -141,8 +175,18 @@ export class GraphConnection {
 
 /**
  * Create a connection config from environment variables.
+ * Supports both URL format (FALKORDB_URL) and individual components.
  */
 export function configFromEnv(): ConnectionConfig {
+  const url = process.env.FALKORDB_URL;
+
+  if (url) {
+    return {
+      url,
+      graphName: process.env.FALKORDB_GRAPH_NAME || 'almoner',
+    };
+  }
+
   return {
     host: process.env.FALKORDB_HOST || 'localhost',
     port: parseInt(process.env.FALKORDB_PORT || '6379', 10),
