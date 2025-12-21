@@ -8,10 +8,31 @@
  *
  * First Principle: Graph is source of truth.
  * Entity resolution ensures the graph contains canonical, deduplicated entities.
+ *
+ * This module can operate in two modes:
+ * 1. With Graphiti service - Full ML-based entity extraction and deduplication
+ * 2. Fallback mode - Local fuzzy matching when Graphiti is unavailable
  */
 
 import type { GraphConnection } from '../graph-core';
 import type { Funder, Org, Person } from '../../types/nodes';
+
+/** Graphiti API response types */
+interface GraphitiEntityResult {
+  id: string;
+  name: string;
+  entity_type: string;
+  is_new: boolean;
+  confidence: number;
+  properties: Record<string, unknown>;
+}
+
+interface GraphitiHealthResponse {
+  status: string;
+  graphiti_connected: boolean;
+  falkordb_url: string;
+  graph_name: string;
+}
 
 /** Confidence score for entity matches */
 export interface MatchConfidence {
@@ -42,32 +63,105 @@ export interface ExtractedEntity {
  * - Entity extraction from unstructured text
  * - Deduplication across data sources
  * - Entity linking and coreference resolution
+ *
+ * Falls back to local fuzzy matching when Graphiti is unavailable.
  */
 export class EntityResolutionEngine {
   private connection: GraphConnection;
   private graphitiEndpoint: string;
-  private graphitiApiKey: string;
+  private graphitiAvailable: boolean | null = null;
 
   constructor(
     connection: GraphConnection,
     graphitiEndpoint: string,
-    graphitiApiKey: string
+    _graphitiApiKey?: string // Kept for backwards compatibility
   ) {
     this.connection = connection;
     this.graphitiEndpoint = graphitiEndpoint;
-    this.graphitiApiKey = graphitiApiKey;
+  }
+
+  /**
+   * Check if Graphiti service is available.
+   */
+  async isGraphitiAvailable(): Promise<boolean> {
+    if (this.graphitiAvailable !== null) {
+      return this.graphitiAvailable;
+    }
+
+    if (!this.graphitiEndpoint) {
+      this.graphitiAvailable = false;
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${this.graphitiEndpoint}/health`);
+      if (response.ok) {
+        const data = (await response.json()) as GraphitiHealthResponse;
+        this.graphitiAvailable = data.graphiti_connected;
+        return this.graphitiAvailable;
+      }
+    } catch {
+      // Graphiti not available
+    }
+
+    this.graphitiAvailable = false;
+    return false;
+  }
+
+  /**
+   * Call Graphiti API endpoint.
+   */
+  private async callGraphiti<T>(
+    endpoint: string,
+    body: Record<string, unknown>
+  ): Promise<T | null> {
+    if (!(await this.isGraphitiAvailable())) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(`${this.graphitiEndpoint}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        return (await response.json()) as T;
+      }
+    } catch {
+      // API call failed
+    }
+
+    return null;
   }
 
   /**
    * Extract entities from unstructured text.
+   *
+   * Uses Graphiti for ML-based NER when available,
+   * falls back to pattern matching otherwise.
    */
-  async extractEntities(text: string): Promise<ExtractedEntity[]> {
-    // Graphiti integration point
-    // In production, this calls the Graphiti API for NER
+  async extractEntities(text: string, source = 'manual'): Promise<ExtractedEntity[]> {
+    // Try Graphiti first
+    const graphitiResult = await this.callGraphiti<GraphitiEntityResult[]>(
+      '/extract',
+      { text, source }
+    );
+
+    if (graphitiResult) {
+      return graphitiResult.map((entity) => ({
+        type: entity.entity_type as ExtractedEntity['type'],
+        name: entity.name,
+        properties: entity.properties,
+        sourceText: text.substring(0, 100),
+        position: { start: 0, end: 0 },
+      }));
+    }
+
+    // Fallback: Basic pattern matching
     const entities: ExtractedEntity[] = [];
 
-    // Placeholder: Basic pattern matching for demonstration
-    // Real implementation uses Graphiti's ML-based extraction
     const orgPatterns = [
       /(?:Foundation|Trust|Fund|Institute|Association|Society)\s+(?:of\s+)?[\w\s]+/gi,
     ];
@@ -93,11 +187,43 @@ export class EntityResolutionEngine {
 
   /**
    * Find or create a Funder, deduplicating against existing entries.
+   * Tries Graphiti API first, falls back to local matching.
    */
   async resolveFunder(
     candidate: Omit<Funder, 'id'>
   ): Promise<EntityMatch<Funder>> {
-    // Search for existing funders by name similarity
+    // Try Graphiti first for ML-based resolution
+    const graphitiResult = await this.callGraphiti<GraphitiEntityResult>(
+      '/resolve/funder',
+      {
+        name: candidate.name,
+        type: candidate.type || 'foundation',
+        focus_areas: candidate.focusAreas || [],
+        geo_focus: candidate.geoFocus || [],
+        total_giving: candidate.totalGiving,
+        source: candidate.source?.[0] || 'manual',
+      }
+    );
+
+    if (graphitiResult && graphitiResult.id !== 'unknown') {
+      // Use Graphiti's resolved entity
+      const funder: Funder = {
+        id: graphitiResult.id,
+        name: graphitiResult.name,
+        type: (graphitiResult.properties.type as Funder['type']) || candidate.type,
+        focusAreas: (graphitiResult.properties.focus_areas as string[]) || candidate.focusAreas,
+        geoFocus: (graphitiResult.properties.geo_focus as string[]) || candidate.geoFocus,
+        totalGiving: (graphitiResult.properties.total_giving as number) ?? candidate.totalGiving,
+        source: candidate.source,
+      };
+      return {
+        entity: funder,
+        confidence: { score: graphitiResult.confidence, factors: ['graphiti_resolution'] },
+        isNew: graphitiResult.is_new,
+      };
+    }
+
+    // Fallback to local matching
     const existing = await this.findSimilarFunders(candidate.name);
 
     if (existing.length > 0 && existing[0].confidence.score >= 0.9) {
@@ -119,8 +245,42 @@ export class EntityResolutionEngine {
 
   /**
    * Find or create an Organization, deduplicating against existing entries.
+   * Tries Graphiti API first, falls back to local matching.
    */
   async resolveOrg(candidate: Omit<Org, 'id'>): Promise<EntityMatch<Org>> {
+    // Try Graphiti first for ML-based resolution
+    const graphitiResult = await this.callGraphiti<GraphitiEntityResult>(
+      '/resolve/org',
+      {
+        name: candidate.name,
+        ein: candidate.ein,
+        mission: candidate.mission,
+        focus_areas: candidate.focusAreas || [],
+        geo_focus: candidate.geoFocus || [],
+        source: 'manual',
+      }
+    );
+
+    if (graphitiResult && graphitiResult.id !== 'unknown') {
+      // Use Graphiti's resolved entity
+      const org: Org = {
+        id: graphitiResult.id,
+        name: graphitiResult.name,
+        ein: (graphitiResult.properties.ein as string) || candidate.ein,
+        fiscalSponsor: candidate.fiscalSponsor,
+        mission: (graphitiResult.properties.mission as string) || candidate.mission,
+        focusAreas: (graphitiResult.properties.focus_areas as string[]) || candidate.focusAreas,
+        geoFocus: (graphitiResult.properties.geo_focus as string[]) || candidate.geoFocus,
+        verified: candidate.verified ?? false,
+      };
+      return {
+        entity: org,
+        confidence: { score: graphitiResult.confidence, factors: ['graphiti_resolution'] },
+        isNew: graphitiResult.is_new,
+      };
+    }
+
+    // Fallback to local matching
     // If EIN is provided, use it for exact matching
     if (candidate.ein) {
       const byEin = await this.findOrgByEin(candidate.ein);
@@ -148,6 +308,60 @@ export class EntityResolutionEngine {
     const newOrg = await this.createOrg(candidate);
     return {
       entity: newOrg,
+      confidence: { score: 1.0, factors: ['new_entity'] },
+      isNew: true,
+    };
+  }
+
+  /**
+   * Find or create a Person, deduplicating against existing entries.
+   * Tries Graphiti API first, falls back to local matching.
+   */
+  async resolvePerson(
+    candidate: Omit<Person, 'id'>
+  ): Promise<EntityMatch<Person>> {
+    // Try Graphiti first for ML-based resolution
+    const graphitiResult = await this.callGraphiti<GraphitiEntityResult>(
+      '/resolve/person',
+      {
+        name: candidate.name,
+        location: candidate.location,
+        interests: candidate.interests || [],
+        source: 'manual',
+      }
+    );
+
+    if (graphitiResult && graphitiResult.id !== 'unknown') {
+      // Use Graphiti's resolved entity
+      const person: Person = {
+        id: graphitiResult.id,
+        name: graphitiResult.name,
+        location: (graphitiResult.properties.location as string) || candidate.location,
+        interests: (graphitiResult.properties.interests as string[]) || candidate.interests,
+        affiliations: candidate.affiliations || [],
+      };
+      return {
+        entity: person,
+        confidence: { score: graphitiResult.confidence, factors: ['graphiti_resolution'] },
+        isNew: graphitiResult.is_new,
+      };
+    }
+
+    // Fallback to local matching
+    const existing = await this.findSimilarPersons(candidate.name);
+
+    if (existing.length > 0 && existing[0].confidence.score >= 0.9) {
+      return {
+        entity: existing[0].entity,
+        confidence: existing[0].confidence,
+        isNew: false,
+      };
+    }
+
+    // No confident match found - create new entity
+    const newPerson = await this.createPerson(candidate);
+    return {
+      entity: newPerson,
       confidence: { score: 1.0, factors: ['new_entity'] },
       isNew: true,
     };
@@ -261,6 +475,54 @@ export class EntityResolutionEngine {
     });
 
     return org;
+  }
+
+  /**
+   * Find persons similar to the given name.
+   */
+  private async findSimilarPersons(
+    name: string
+  ): Promise<Array<{ entity: Person; confidence: MatchConfidence }>> {
+    const normalizedName = this.normalizeName(name);
+
+    const cypher = `
+      MATCH (p:Person)
+      WHERE toLower(p.name) CONTAINS toLower($searchTerm)
+      RETURN p
+      LIMIT 10
+    `;
+
+    const results = await this.connection.query<{ p: Person }>(cypher, {
+      searchTerm: normalizedName,
+    });
+
+    return results.map((r) => ({
+      entity: r.p,
+      confidence: this.calculateNameSimilarity(name, r.p.name),
+    }));
+  }
+
+  /**
+   * Create a new Person in the graph.
+   */
+  private async createPerson(data: Omit<Person, 'id'>): Promise<Person> {
+    const id = crypto.randomUUID();
+    const person: Person = { ...data, id };
+
+    const cypher = `
+      CREATE (p:Person $properties)
+      RETURN p
+    `;
+
+    await this.connection.mutate(cypher, {
+      properties: {
+        ...person,
+        interests: JSON.stringify(person.interests),
+        affiliations: JSON.stringify(person.affiliations),
+      },
+    });
+
+    return person;
   }
 
   /**
