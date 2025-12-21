@@ -26,6 +26,15 @@ export interface ConnectionConfig {
   graphName: string;
 }
 
+/** Mutation statistics */
+export interface MutationStats {
+  nodesCreated: number;
+  nodesDeleted: number;
+  relationshipsCreated: number;
+  relationshipsDeleted: number;
+  propertiesSet: number;
+}
+
 /**
  * Parse a Redis URL into connection components.
  */
@@ -36,6 +45,45 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
     port: parseInt(parsed.port || '6379', 10),
     password: parsed.password || undefined,
   };
+}
+
+/**
+ * Parse metadata array from FalkorDB into stats object.
+ * Metadata format: ["Nodes created: 1", "Properties set: 2", ...]
+ */
+function parseMetadata(metadata: string[]): MutationStats {
+  const stats: MutationStats = {
+    nodesCreated: 0,
+    nodesDeleted: 0,
+    relationshipsCreated: 0,
+    relationshipsDeleted: 0,
+    propertiesSet: 0,
+  };
+
+  for (const line of metadata) {
+    const [key, value] = line.split(':').map((s) => s.trim());
+    const numValue = parseInt(value, 10) || 0;
+
+    switch (key.toLowerCase()) {
+      case 'nodes created':
+        stats.nodesCreated = numValue;
+        break;
+      case 'nodes deleted':
+        stats.nodesDeleted = numValue;
+        break;
+      case 'relationships created':
+        stats.relationshipsCreated = numValue;
+        break;
+      case 'relationships deleted':
+        stats.relationshipsDeleted = numValue;
+        break;
+      case 'properties set':
+        stats.propertiesSet = numValue;
+        break;
+    }
+  }
+
+  return stats;
 }
 
 /**
@@ -117,31 +165,18 @@ export class GraphConnection {
    */
   async query<T = unknown>(cypher: string, params?: Record<string, unknown>): Promise<T[]> {
     const graph = this.getGraph();
-    const result = await graph.query(cypher, { params });
-    return result.data as T[];
+    const result = await graph.query<T>(cypher, params ? { params: params as Record<string, string | number | boolean | null> } : undefined);
+    return (result.data || []) as T[];
   }
 
   /**
    * Execute a Cypher query that modifies the graph.
    * Returns statistics about the modification.
    */
-  async mutate(cypher: string, params?: Record<string, unknown>): Promise<{
-    nodesCreated: number;
-    nodesDeleted: number;
-    relationshipsCreated: number;
-    relationshipsDeleted: number;
-    propertiesSet: number;
-  }> {
+  async mutate(cypher: string, params?: Record<string, unknown>): Promise<MutationStats> {
     const graph = this.getGraph();
-    const result = await graph.query(cypher, { params });
-
-    return {
-      nodesCreated: result.metadata.nodesCreated ?? 0,
-      nodesDeleted: result.metadata.nodesDeleted ?? 0,
-      relationshipsCreated: result.metadata.relationshipsCreated ?? 0,
-      relationshipsDeleted: result.metadata.relationshipsDeleted ?? 0,
-      propertiesSet: result.metadata.propertiesSet ?? 0,
-    };
+    const result = await graph.query(cypher, params ? { params: params as Record<string, string | number | boolean | null> } : undefined);
+    return parseMetadata(result.metadata);
   }
 
   /**

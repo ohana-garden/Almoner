@@ -9,6 +9,7 @@
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "test": "jest",
+    "test:connection": "ts-node scripts/test-connection.ts",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -24,8 +25,8 @@
   "author": "Ohana Garden",
   "license": "MIT",
   "dependencies": {
-    "falkordb": "^0.5.0",
-    "graphiti-core": "^0.1.0",
+    "dotenv": "^16.3.0",
+    "falkordb": "^6.4.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
