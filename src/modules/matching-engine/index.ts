@@ -11,7 +11,7 @@
  */
 
 import type { GraphConnection } from '../graph-core';
-import type { Grant, Scholarship, Org, Person } from '../../types/nodes';
+import type { Grant, Scholarship, Org, Person, Opportunity } from '../../types/nodes';
 
 /** Match quality score */
 export interface MatchScore {
@@ -43,12 +43,41 @@ export interface ScholarshipMatch {
   funderName?: string;
 }
 
+/** Opportunity match result */
+export interface OpportunityMatch {
+  opportunity: Opportunity;
+  score: MatchScore;
+  orgId: string;
+  orgName: string;
+  deadline?: Date;
+}
+
+/** Volunteer match result (for finding volunteers for an opportunity) */
+export interface VolunteerMatch {
+  person: Person;
+  score: MatchScore;
+  totalKala?: number;
+  relevantContributions?: number;
+}
+
 /** Match filters */
 export interface MatchFilters {
   minAmount?: number;
   maxAmount?: number;
   focusAreas?: string[];
   geoFocus?: string[];
+  deadlineAfter?: Date;
+  deadlineBefore?: Date;
+  minScore?: number;
+}
+
+/** Opportunity-specific filters */
+export interface OpportunityFilters {
+  focusAreas?: string[];
+  skills?: string[];
+  schedule?: 'weekly' | 'one-time' | 'flexible';
+  minHours?: number;
+  maxHours?: number;
   deadlineAfter?: Date;
   deadlineBefore?: Date;
   minScore?: number;
@@ -280,6 +309,276 @@ export class MatchingEngine {
       focusAreas: Array.from(successFocusAreas),
       minScore: 0.6,
     });
+  }
+
+  /**
+   * Find matching opportunities for a person based on interests and skills.
+   */
+  async findOpportunitiesForPerson(
+    personId: string,
+    filters: OpportunityFilters = {}
+  ): Promise<OpportunityMatch[]> {
+    // Get the person's profile
+    const person = await this.getPerson(personId);
+    if (!person) {
+      throw new Error(`Person not found: ${personId}`);
+    }
+
+    // Build the matching query
+    const cypher = this.buildOpportunityMatchQuery(filters);
+
+    const results = await this.connection.query<{
+      o: Record<string, unknown>;
+      orgId: string;
+      orgName: string;
+    }>(cypher, {
+      personId,
+      now: new Date().toISOString(),
+      schedule: filters.schedule,
+      focusAreas: filters.focusAreas || person.interests,
+    });
+
+    // Score each match
+    const matches: OpportunityMatch[] = [];
+    for (const result of results) {
+      const opportunity = this.parseOpportunity(result.o);
+      const score = this.scoreOpportunityMatch(person, opportunity, filters);
+
+      // Apply minimum score filter
+      if (filters.minScore && score.overall < filters.minScore) {
+        continue;
+      }
+
+      // Apply hours filters
+      if (filters.minHours && opportunity.hoursNeeded.max < filters.minHours) {
+        continue;
+      }
+      if (filters.maxHours && opportunity.hoursNeeded.min > filters.maxHours) {
+        continue;
+      }
+
+      matches.push({
+        opportunity,
+        score,
+        orgId: result.orgId,
+        orgName: result.orgName,
+        deadline: opportunity.deadline,
+      });
+    }
+
+    // Sort by score (highest first)
+    return matches.sort((a, b) => b.score.overall - a.score.overall);
+  }
+
+  /**
+   * Find volunteers who might be good fits for an opportunity.
+   */
+  async findVolunteersForOpportunity(
+    opportunityId: string,
+    limit = 20
+  ): Promise<VolunteerMatch[]> {
+    const opportunity = await this.getOpportunity(opportunityId);
+    if (!opportunity) {
+      throw new Error(`Opportunity not found: ${opportunityId}`);
+    }
+
+    // Find people with matching interests/skills and contribution history
+    const cypher = `
+      MATCH (p:Person)
+      OPTIONAL MATCH (p)-[:CONTRIBUTED]->(c:Contribution)
+      WITH p, count(c) as contributions, sum(c.kalaGenerated) as totalKala
+      RETURN p, contributions, totalKala
+      ORDER BY totalKala DESC
+      LIMIT ${limit * 2}
+    `;
+
+    const results = await this.connection.query<{
+      p: Record<string, unknown>;
+      contributions: number;
+      totalKala: number;
+    }>(cypher);
+
+    const matches: VolunteerMatch[] = [];
+    for (const result of results) {
+      const person = this.parsePerson(result.p);
+      const score = this.scoreVolunteerMatch(person, opportunity);
+
+      matches.push({
+        person,
+        score,
+        totalKala: result.totalKala || 0,
+        relevantContributions: result.contributions || 0,
+      });
+    }
+
+    return matches.sort((a, b) => b.score.overall - a.score.overall).slice(0, limit);
+  }
+
+  /**
+   * Build Cypher query for opportunity matching.
+   */
+  private buildOpportunityMatchQuery(filters: OpportunityFilters): string {
+    let query = `
+      MATCH (org:Org)-[:OFFERS]->(o:Opportunity)
+      WHERE o.spotsAvailable > 0
+    `;
+
+    if (filters.schedule) {
+      query += ` AND o.schedule = $schedule`;
+    }
+
+    if (filters.deadlineAfter) {
+      query += ` AND (o.deadline IS NULL OR o.deadline >= $deadlineAfter)`;
+    }
+
+    if (filters.deadlineBefore) {
+      query += ` AND (o.deadline IS NULL OR o.deadline <= $deadlineBefore)`;
+    }
+
+    query += `
+      RETURN o, org.id as orgId, org.name as orgName
+      LIMIT 100
+    `;
+
+    return query;
+  }
+
+  /**
+   * Score an opportunity match for a person.
+   */
+  private scoreOpportunityMatch(
+    person: Person,
+    opportunity: Opportunity,
+    filters: OpportunityFilters
+  ): MatchScore {
+    const explanation: string[] = [];
+    let focusAreaMatch = 0;
+    let skillsMatch = 0;
+    let scheduleMatch = 0.5; // Neutral default
+
+    // Interest/focus area matching
+    const personInterests = new Set(person.interests.map((i) => i.toLowerCase()));
+    const oppFocusAreas = opportunity.focusAreas.map((a) => a.toLowerCase());
+    let focusMatches = 0;
+
+    for (const area of oppFocusAreas) {
+      if (personInterests.has(area)) {
+        focusMatches++;
+      }
+    }
+
+    if (oppFocusAreas.length > 0) {
+      focusAreaMatch = focusMatches / oppFocusAreas.length;
+      if (focusAreaMatch > 0) {
+        explanation.push(`${Math.round(focusAreaMatch * 100)}% focus area overlap`);
+      }
+    } else {
+      focusAreaMatch = 0.5; // No focus areas specified = neutral
+    }
+
+    // Skills matching (simplified - would need person.skills in full implementation)
+    if (opportunity.skills.length === 0) {
+      skillsMatch = 0.8; // No skills required
+      explanation.push('No specific skills required');
+    } else {
+      // Check if any person interests match opportunity skills
+      const oppSkills = new Set(opportunity.skills.map((s) => s.toLowerCase()));
+      let skillMatches = 0;
+      for (const interest of personInterests) {
+        if (oppSkills.has(interest)) {
+          skillMatches++;
+        }
+      }
+      skillsMatch = skillMatches > 0 ? Math.min(skillMatches / opportunity.skills.length, 1) : 0.3;
+      if (skillMatches > 0) {
+        explanation.push(`${skillMatches} matching skill(s)`);
+      }
+    }
+
+    // Schedule preference (would need person preferences in full implementation)
+    if (opportunity.schedule === 'flexible') {
+      scheduleMatch = 0.9;
+      explanation.push('Flexible schedule');
+    } else if (opportunity.schedule === 'one-time') {
+      scheduleMatch = 0.7;
+      explanation.push('One-time commitment');
+    } else {
+      scheduleMatch = 0.6;
+      explanation.push('Weekly commitment');
+    }
+
+    // Calculate overall score (weighted average)
+    const overall = focusAreaMatch * 0.4 + skillsMatch * 0.4 + scheduleMatch * 0.2;
+
+    return {
+      overall,
+      factors: {
+        focusAreaMatch,
+        geoMatch: skillsMatch, // Reusing field for skills
+        eligibilityMatch: scheduleMatch,
+      },
+      explanation,
+    };
+  }
+
+  /**
+   * Score a volunteer match for an opportunity.
+   */
+  private scoreVolunteerMatch(person: Person, opportunity: Opportunity): MatchScore {
+    const explanation: string[] = [];
+    let focusAreaMatch = 0;
+    let skillsMatch = 0;
+
+    // Interest/focus area matching
+    const personInterests = new Set(person.interests.map((i) => i.toLowerCase()));
+    const oppFocusAreas = opportunity.focusAreas.map((a) => a.toLowerCase());
+
+    for (const area of oppFocusAreas) {
+      if (personInterests.has(area)) {
+        focusAreaMatch += 1 / oppFocusAreas.length;
+      }
+    }
+
+    if (focusAreaMatch > 0) {
+      explanation.push(`${Math.round(focusAreaMatch * 100)}% interest match`);
+    }
+
+    // Skills matching
+    if (opportunity.skills.length === 0) {
+      skillsMatch = 0.8;
+    } else {
+      const oppSkills = new Set(opportunity.skills.map((s) => s.toLowerCase()));
+      for (const interest of personInterests) {
+        if (oppSkills.has(interest)) {
+          skillsMatch += 1 / opportunity.skills.length;
+        }
+      }
+    }
+
+    if (skillsMatch > 0) {
+      explanation.push(`Skills match: ${Math.round(skillsMatch * 100)}%`);
+    }
+
+    const overall = focusAreaMatch * 0.5 + skillsMatch * 0.5;
+
+    return {
+      overall,
+      factors: {
+        focusAreaMatch,
+        geoMatch: skillsMatch,
+        eligibilityMatch: 1, // Assume eligible
+      },
+      explanation,
+    };
+  }
+
+  /**
+   * Get opportunity by ID.
+   */
+  private async getOpportunity(opportunityId: string): Promise<Opportunity | null> {
+    const cypher = `MATCH (o:Opportunity {id: $opportunityId}) RETURN o`;
+    const results = await this.connection.query<{ o: Record<string, unknown> }>(cypher, { opportunityId });
+    return results.length > 0 ? this.parseOpportunity(results[0].o) : null;
   }
 
   /**
@@ -552,6 +851,25 @@ export class MatchingEngine {
       location: raw.location as string | undefined,
       interests: typeof raw.interests === 'string' ? JSON.parse(raw.interests) : raw.interests || [],
       affiliations: typeof raw.affiliations === 'string' ? JSON.parse(raw.affiliations) : raw.affiliations || [],
+    };
+  }
+
+  /**
+   * Parse opportunity from database result.
+   */
+  private parseOpportunity(raw: Record<string, unknown>): Opportunity {
+    return {
+      id: raw.id as string,
+      title: raw.title as string,
+      description: raw.description as string,
+      hoursNeeded: typeof raw.hoursNeeded === 'string' ? JSON.parse(raw.hoursNeeded) : raw.hoursNeeded || { min: 0, max: 0 },
+      schedule: raw.schedule as 'weekly' | 'one-time' | 'flexible',
+      siteId: raw.siteId as string | undefined,
+      skills: typeof raw.skills === 'string' ? JSON.parse(raw.skills) : raw.skills || [],
+      focusAreas: typeof raw.focusAreas === 'string' ? JSON.parse(raw.focusAreas) : raw.focusAreas || [],
+      deadline: raw.deadline ? new Date(raw.deadline as string) : undefined,
+      spotsAvailable: raw.spotsAvailable as number,
+      lastUpdated: new Date(raw.lastUpdated as string),
     };
   }
 }

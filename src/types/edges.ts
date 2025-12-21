@@ -30,12 +30,12 @@ export interface BaseEdge {
 
 /**
  * OFFERS Edge
- * Connects Funder to Grant or Scholarship
+ * Connects Funder to Grant or Scholarship, or Org to Opportunity
  */
 export interface OffersEdge extends BaseEdge {
   type: 'OFFERS';
-  sourceLabel: 'Funder';
-  targetLabel: 'Grant' | 'Scholarship';
+  sourceLabel: 'Funder' | 'Org';
+  targetLabel: 'Grant' | 'Scholarship' | 'Opportunity';
 }
 
 /**
@@ -67,12 +67,12 @@ export interface FocusesOnEdge extends BaseEdge {
 
 /**
  * APPLIED_TO Edge
- * Records application from Org to Grant or Person to Scholarship
+ * Records application from Org to Grant, Person to Scholarship, or Person to Opportunity
  */
 export interface AppliedToEdge extends BaseEdge {
   type: 'APPLIED_TO';
   sourceLabel: 'Org' | 'Person';
-  targetLabel: 'Grant' | 'Scholarship';
+  targetLabel: 'Grant' | 'Scholarship' | 'Opportunity';
   status: ApplicationStatus;
   date: Date;
   notes?: string;
@@ -157,13 +157,13 @@ export interface AtEdge extends BaseEdge {
 
 /**
  * FOR Edge
- * Connects Contribution to Project
- * Records WHAT PROJECT the contribution supported.
+ * Connects Contribution to Project or Opportunity
+ * Records WHAT the contribution supported.
  */
 export interface ForEdge extends BaseEdge {
   type: 'FOR';
   sourceLabel: 'Contribution';
-  targetLabel: 'Project';
+  targetLabel: 'Project' | 'Opportunity';
 }
 
 // ============================================
@@ -278,11 +278,13 @@ export interface EdgeDefinition {
 export const EDGE_SCHEMA: EdgeDefinition[] = [
   { type: 'OFFERS', fromLabel: 'Funder', toLabel: 'Grant', properties: [] },
   { type: 'OFFERS', fromLabel: 'Funder', toLabel: 'Scholarship', properties: [] },
+  { type: 'OFFERS', fromLabel: 'Org', toLabel: 'Opportunity', properties: [] },
   { type: 'FUNDED', fromLabel: 'Funder', toLabel: 'Org', properties: ['amount', 'date'] },
   { type: 'FUNDED', fromLabel: 'Funder', toLabel: 'Person', properties: ['amount', 'date'] },
   { type: 'FOCUSES_ON', fromLabel: 'Funder', toLabel: 'FocusArea', properties: [] },
   { type: 'APPLIED_TO', fromLabel: 'Org', toLabel: 'Grant', properties: ['status', 'date'] },
   { type: 'APPLIED_TO', fromLabel: 'Person', toLabel: 'Scholarship', properties: ['status', 'date'] },
+  { type: 'APPLIED_TO', fromLabel: 'Person', toLabel: 'Opportunity', properties: ['status', 'date'] },
   { type: 'RUNS', fromLabel: 'Org', toLabel: 'Project', properties: [] },
   { type: 'LOCATED_AT', fromLabel: 'Project', toLabel: 'Site', properties: [] },
   { type: 'SPONSORED_BY', fromLabel: 'Org', toLabel: 'Org', properties: [] },
@@ -290,6 +292,7 @@ export const EDGE_SCHEMA: EdgeDefinition[] = [
   { type: 'CONTRIBUTED', fromLabel: 'Person', toLabel: 'Contribution', properties: [] },
   { type: 'AT', fromLabel: 'Contribution', toLabel: 'Site', properties: [] },
   { type: 'FOR', fromLabel: 'Contribution', toLabel: 'Project', properties: [] },
+  { type: 'FOR', fromLabel: 'Contribution', toLabel: 'Opportunity', properties: [] },
   { type: 'ENABLED', fromLabel: 'Grant', toLabel: 'Activity', properties: [] },
   { type: 'CONTRIBUTED_BY', fromLabel: 'Activity', toLabel: 'Person', properties: [] },
   { type: 'PRODUCED', fromLabel: 'Activity', toLabel: 'Output', properties: [] },
