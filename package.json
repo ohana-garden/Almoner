@@ -10,6 +10,7 @@
     "start": "node dist/index.js",
     "test": "jest",
     "test:connection": "ts-node scripts/test-connection.ts",
+    "seed:phase1": "ts-node scripts/seed-phase1.ts",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit"
   },
