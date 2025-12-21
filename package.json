@@ -1,6 +1,6 @@
 {
   "name": "almoner",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A graph-native platform facilitating the flow of resources—grants, scholarships—to those who can use them, with impact made visible through contribution patterns.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
