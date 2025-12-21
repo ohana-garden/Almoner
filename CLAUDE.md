@@ -17,8 +17,8 @@ Almoner is a graph-native platform facilitating the flow of resources—grants, 
 
 ### Objectives
 1. ✅ Graph Core (FalkorDB connection, schema)
-2. ✅ Basic entity types (Funder, Grant, Org, Person)
-3. 🔄 Manual data entry for testing
+2. ✅ Entity types (Funder, Grant, Scholarship, Opportunity, Org, Person, Site, Project)
+3. ✅ Seed script for testing data
 
 ### FalkorDB Connection
 ```
@@ -61,6 +61,9 @@ npm install
 
 # Test FalkorDB connection
 npm run test:connection
+
+# Seed Phase 1 test data
+npm run seed:phase1
 
 # Build
 npm run build
