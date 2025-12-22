@@ -2,6 +2,39 @@
 
 This project uses Railway's config-as-code. After one-time setup, all configuration is managed via files.
 
+## Quick Start (API Deployment)
+
+Deploy all services with a single command using the Railway GraphQL API:
+
+```bash
+# 1. Get your API token from https://railway.com/account/tokens
+export RAILWAY_API_TOKEN="your-token-here"
+
+# 2. (Optional) Set OpenAI key for Graphiti entity resolution
+export OPENAI_API_KEY="sk-..."
+
+# 3. Deploy all services
+npm run deploy:railway
+```
+
+This will:
+- Create a new Railway project (or use existing if `RAILWAY_PROJECT_ID` is set)
+- Deploy FalkorDB from template or Docker image
+- Create Almoner (Node.js) and Graphiti (Python) services
+- Configure all environment variables with service references
+- Create public domains
+- Trigger initial deployments
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `RAILWAY_API_TOKEN` | Yes | Railway API token from account settings |
+| `RAILWAY_PROJECT_ID` | No | Use existing project instead of creating new |
+| `GITHUB_REPO` | No | GitHub repo (default: `ohana-garden/Almoner`) |
+| `RAILWAY_BRANCH` | No | Branch to deploy (default: `main`) |
+| `OPENAI_API_KEY` | No | OpenAI key for Graphiti entity resolution |
+
 ## Architecture
 
 ```
@@ -108,3 +141,26 @@ curl -X POST https://almoner-production.up.railway.app/seed
 ### Changes not deploying
 - Check watch patterns in railway.toml
 - Verify you're pushing to the correct branch
+
+## API Scripts Reference
+
+| Script | Description |
+|--------|-------------|
+| `npm run deploy:railway` | Full automated deployment via GraphQL API |
+| `./scripts/railway-setup.sh` | Interactive setup (prompts for IDs) |
+| `npx ts-node scripts/railway-setup.ts` | Interactive TypeScript setup |
+
+### Railway GraphQL API
+
+The deployment scripts use Railway's public GraphQL API:
+
+- **Endpoint:** `https://backboard.railway.com/graphql/v2`
+- **Auth:** Bearer token from [account settings](https://railway.com/account/tokens)
+
+Key mutations used:
+- `projectCreate` - Create new Railway project
+- `serviceCreate` - Create service from GitHub repo or Docker image
+- `templateDeployV2` - Deploy from Railway template (FalkorDB)
+- `variableUpsert` - Set environment variables
+- `serviceDomainCreate` - Create public domain
+- `serviceInstanceRedeploy` - Trigger redeployment
