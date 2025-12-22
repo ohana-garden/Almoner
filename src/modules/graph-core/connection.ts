@@ -14,10 +14,76 @@
 import { FalkorDB, Graph } from 'falkordb';
 
 export interface ConnectionConfig {
-  host: string;
-  port: number;
+  /** Redis URL (e.g., redis://host:port or redis://:password@host:port) */
+  url?: string;
+  /** Host (used if url is not provided) */
+  host?: string;
+  /** Port (used if url is not provided) */
+  port?: number;
+  /** Password (used if url is not provided) */
   password?: string;
+  /** Graph name */
   graphName: string;
+}
+
+/** Mutation statistics */
+export interface MutationStats {
+  nodesCreated: number;
+  nodesDeleted: number;
+  relationshipsCreated: number;
+  relationshipsDeleted: number;
+  propertiesSet: number;
+}
+
+/**
+ * Parse a Redis URL into connection components.
+ */
+function parseRedisUrl(url: string): { host: string; port: number; password?: string } {
+  const parsed = new URL(url);
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port || '6379', 10),
+    password: parsed.password || undefined,
+  };
+}
+
+/**
+ * Parse metadata array from FalkorDB into stats object.
+ * Metadata format: ["Nodes created: 1", "Properties set: 2", ...]
+ */
+function parseMetadata(metadata: string[]): MutationStats {
+  const stats: MutationStats = {
+    nodesCreated: 0,
+    nodesDeleted: 0,
+    relationshipsCreated: 0,
+    relationshipsDeleted: 0,
+    propertiesSet: 0,
+  };
+
+  for (const line of metadata) {
+    const [key, value] = line.split(':').map((s) => s.trim());
+    const numValue = parseInt(value, 10) || 0;
+
+    switch (key.toLowerCase()) {
+      case 'nodes created':
+        stats.nodesCreated = numValue;
+        break;
+      case 'nodes deleted':
+        stats.nodesDeleted = numValue;
+        break;
+      case 'relationships created':
+        stats.relationshipsCreated = numValue;
+        break;
+      case 'relationships deleted':
+        stats.relationshipsDeleted = numValue;
+        break;
+      case 'properties set':
+        stats.propertiesSet = numValue;
+        break;
+    }
+  }
+
+  return stats;
 }
 
 /**
@@ -56,12 +122,28 @@ export class GraphConnection {
       return; // Already connected
     }
 
+    let host: string;
+    let port: number;
+    let password: string | undefined;
+
+    // Parse URL if provided, otherwise use individual components
+    if (this.config.url) {
+      const parsed = parseRedisUrl(this.config.url);
+      host = parsed.host;
+      port = parsed.port;
+      password = parsed.password;
+    } else {
+      host = this.config.host || 'localhost';
+      port = this.config.port || 6379;
+      password = this.config.password;
+    }
+
     this.client = await FalkorDB.connect({
       socket: {
-        host: this.config.host,
-        port: this.config.port,
+        host,
+        port,
       },
-      password: this.config.password,
+      password,
     });
 
     this.graph = this.client.selectGraph(this.config.graphName);
@@ -83,31 +165,18 @@ export class GraphConnection {
    */
   async query<T = unknown>(cypher: string, params?: Record<string, unknown>): Promise<T[]> {
     const graph = this.getGraph();
-    const result = await graph.query(cypher, { params });
-    return result.data as T[];
+    const result = await graph.query<T>(cypher, params ? { params: params as Record<string, string | number | boolean | null> } : undefined);
+    return (result.data || []) as T[];
   }
 
   /**
    * Execute a Cypher query that modifies the graph.
    * Returns statistics about the modification.
    */
-  async mutate(cypher: string, params?: Record<string, unknown>): Promise<{
-    nodesCreated: number;
-    nodesDeleted: number;
-    relationshipsCreated: number;
-    relationshipsDeleted: number;
-    propertiesSet: number;
-  }> {
+  async mutate(cypher: string, params?: Record<string, unknown>): Promise<MutationStats> {
     const graph = this.getGraph();
-    const result = await graph.query(cypher, { params });
-
-    return {
-      nodesCreated: result.metadata.nodesCreated ?? 0,
-      nodesDeleted: result.metadata.nodesDeleted ?? 0,
-      relationshipsCreated: result.metadata.relationshipsCreated ?? 0,
-      relationshipsDeleted: result.metadata.relationshipsDeleted ?? 0,
-      propertiesSet: result.metadata.propertiesSet ?? 0,
-    };
+    const result = await graph.query(cypher, params ? { params: params as Record<string, string | number | boolean | null> } : undefined);
+    return parseMetadata(result.metadata);
   }
 
   /**
@@ -141,8 +210,18 @@ export class GraphConnection {
 
 /**
  * Create a connection config from environment variables.
+ * Supports both URL format (FALKORDB_URL) and individual components.
  */
 export function configFromEnv(): ConnectionConfig {
+  const url = process.env.FALKORDB_URL;
+
+  if (url) {
+    return {
+      url,
+      graphName: process.env.FALKORDB_GRAPH_NAME || 'almoner',
+    };
+  }
+
   return {
     host: process.env.FALKORDB_HOST || 'localhost',
     port: parseInt(process.env.FALKORDB_PORT || '6379', 10),

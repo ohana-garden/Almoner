@@ -69,11 +69,18 @@ let _config: AlmonerConfig | null = null;
  * Get the current configuration.
  * Loads from environment on first access.
  */
-export const config = new Proxy({} as AlmonerConfig, {
-  get(target, prop) {
-    if (!_config) {
-      _config = loadConfig();
-    }
-    return (_config as Record<string | symbol, unknown>)[prop];
-  },
-});
+export function getConfig(): AlmonerConfig {
+  if (!_config) {
+    _config = loadConfig();
+  }
+  return _config;
+}
+
+/** Alias for backwards compatibility */
+export const config = {
+  get falkordb() { return getConfig().falkordb; },
+  get graphiti() { return getConfig().graphiti; },
+  get dataSources() { return getConfig().dataSources; },
+  get mcp() { return getConfig().mcp; },
+  get env() { return getConfig().env; },
+};

@@ -210,6 +210,35 @@ export class McpService {
           },
         },
       },
+      {
+        name: 'find_opportunities_for_person',
+        description: 'Find volunteer opportunities matching a person\'s interests and skills',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            personId: { type: 'string', description: 'Person ID' },
+            focusAreas: { type: 'array', items: { type: 'string' }, description: 'Filter by focus areas' },
+            skills: { type: 'array', items: { type: 'string' }, description: 'Filter by required skills' },
+            schedule: { type: 'string', enum: ['weekly', 'one-time', 'flexible'], description: 'Filter by schedule type' },
+            minHours: { type: 'number', description: 'Minimum hours commitment' },
+            maxHours: { type: 'number', description: 'Maximum hours commitment' },
+            minScore: { type: 'number', description: 'Minimum match score (0-1)' },
+          },
+          required: ['personId'],
+        },
+      },
+      {
+        name: 'find_volunteers_for_opportunity',
+        description: 'Find potential volunteers who might be good fits for an opportunity',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            opportunityId: { type: 'string', description: 'Opportunity ID' },
+            limit: { type: 'number', description: 'Maximum number of results', default: 20 },
+          },
+          required: ['opportunityId'],
+        },
+      },
 
       // Kala tools
       {
@@ -315,7 +344,7 @@ export class McpService {
           properties: {
             nodeType: {
               type: 'string',
-              enum: ['Funder', 'Grant', 'Scholarship', 'Org', 'Person', 'Project', 'Site'],
+              enum: ['Funder', 'Grant', 'Scholarship', 'Opportunity', 'Org', 'Person', 'Project', 'Site'],
             },
             searchTerm: { type: 'string', description: 'Search term for name/title' },
             limit: { type: 'number', default: 20 },
@@ -371,6 +400,27 @@ export class McpService {
         case 'get_expiring_grants':
           result = await this.matchingEngine.getExpiringGrants(
             args.withinDays as number | undefined
+          );
+          break;
+
+        case 'find_opportunities_for_person':
+          result = await this.matchingEngine.findOpportunitiesForPerson(
+            args.personId as string,
+            {
+              focusAreas: args.focusAreas as string[] | undefined,
+              skills: args.skills as string[] | undefined,
+              schedule: args.schedule as 'weekly' | 'one-time' | 'flexible' | undefined,
+              minHours: args.minHours as number | undefined,
+              maxHours: args.maxHours as number | undefined,
+              minScore: args.minScore as number | undefined,
+            }
+          );
+          break;
+
+        case 'find_volunteers_for_opportunity':
+          result = await this.matchingEngine.findVolunteersForOpportunity(
+            args.opportunityId as string,
+            args.limit as number | undefined
           );
           break;
 
@@ -520,6 +570,7 @@ export class McpService {
                 'Funder',
                 'Grant',
                 'Scholarship',
+                'Opportunity',
                 'Org',
                 'Person',
                 'Site',

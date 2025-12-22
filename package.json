@@ -1,14 +1,16 @@
 {
   "name": "almoner",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A graph-native platform facilitating the flow of resources—grants, scholarships—to those who can use them, with impact made visible through contribution patterns.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/index.ts",
-    "start": "node dist/index.js",
+    "dev": "ts-node src/server.ts",
+    "start": "node dist/server.js",
     "test": "jest",
+    "test:connection": "ts-node scripts/test-connection.ts",
+    "seed:phase1": "ts-node scripts/seed-phase1.ts",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -24,8 +26,8 @@
   "author": "Ohana Garden",
   "license": "MIT",
   "dependencies": {
-    "falkordb": "^0.5.0",
-    "graphiti-core": "^0.1.0",
+    "dotenv": "^16.3.0",
+    "falkordb": "^6.4.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

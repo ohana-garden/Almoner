@@ -32,6 +32,15 @@ export interface ScholarshipEligibility {
   otherCriteria: string[];
 }
 
+/** Hours range for opportunities */
+export interface HoursRange {
+  min: number;
+  max: number;
+}
+
+/** Opportunity schedule type */
+export type OpportunitySchedule = 'weekly' | 'one-time' | 'flexible';
+
 /**
  * Funder Node
  * Represents foundations, corporations, government entities, DAFs, or individuals
@@ -74,6 +83,25 @@ export interface Scholarship {
   eligibility: ScholarshipEligibility;
   applicationUrl: string;
   renewable: boolean;
+  lastUpdated: Date;
+}
+
+/**
+ * Opportunity Node
+ * Represents a volunteer opportunity offered by an Org.
+ * Unlike Grants/Scholarships, opportunities are measured in hours, not money.
+ */
+export interface Opportunity {
+  id: string;
+  title: string;
+  description: string;
+  hoursNeeded: HoursRange;
+  schedule: OpportunitySchedule;
+  siteId?: string;
+  skills: string[];
+  focusAreas: string[];
+  deadline?: Date;
+  spotsAvailable: number;
   lastUpdated: Date;
 }
 
@@ -189,6 +217,7 @@ export type NodeType =
   | Funder
   | Grant
   | Scholarship
+  | Opportunity
   | Org
   | Person
   | Site
@@ -203,6 +232,7 @@ export type NodeLabel =
   | 'Funder'
   | 'Grant'
   | 'Scholarship'
+  | 'Opportunity'
   | 'Org'
   | 'Person'
   | 'Site'
