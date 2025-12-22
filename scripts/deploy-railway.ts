@@ -360,7 +360,7 @@ async function waitForServiceReady(
   projectId: string,
   serviceName: string,
   maxWaitMs = 60000
-): Promise<Service | null> {
+): Promise<Service | undefined> {
   const startTime = Date.now();
   while (Date.now() - startTime < maxWaitMs) {
     const project = await getProject(projectId);
@@ -374,7 +374,7 @@ async function waitForServiceReady(
     }
     await sleep(3000);
   }
-  return null;
+  return undefined;
 }
 
 async function main() {
