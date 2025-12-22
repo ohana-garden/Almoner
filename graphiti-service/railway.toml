@@ -1,0 +1,13 @@
+# Graphiti Entity Resolution Service Configuration
+# https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "railpack"
+watchPatterns = ["*.py", "requirements.txt", ".python-version"]
+
+[deploy]
+startCommand = "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
