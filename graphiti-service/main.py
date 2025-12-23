@@ -25,11 +25,13 @@ load_dotenv()
 try:
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
+    from graphiti_core.driver.falkordb_driver import FalkorDriver
     GRAPHITI_AVAILABLE = True
 except Exception as e:
     print(f"Graphiti import failed: {e}")
     Graphiti = None
     EpisodeType = None
+    FalkorDriver = None
     GRAPHITI_AVAILABLE = False
 
 # Configuration
@@ -126,11 +128,15 @@ async def lifespan(app: FastAPI):
             host = host_port
             port = 6379
 
-        # Initialize Graphiti with FalkorDB
-        graphiti = Graphiti(
-            uri=f"bolt://{host}:{port}",  # FalkorDB bolt protocol
+        # Initialize FalkorDB driver with graph name
+        driver = FalkorDriver(
+            host=host,
+            port=port,
             database=FALKORDB_GRAPH,
         )
+
+        # Initialize Graphiti with FalkorDB driver
+        graphiti = Graphiti(graph_driver=driver)
 
         # Build indices for better performance
         await graphiti.build_indices()
