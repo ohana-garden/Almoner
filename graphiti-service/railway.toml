@@ -2,8 +2,9 @@
 # https://docs.railway.com/reference/config-as-code
 
 [build]
-builder = "railpack"
-watchPatterns = ["*.py", "requirements.txt", ".python-version"]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["*.py", "requirements.txt", "Dockerfile"]
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
