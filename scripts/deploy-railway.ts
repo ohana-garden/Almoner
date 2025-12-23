@@ -77,11 +77,12 @@ async function gqlWithRetry<T>(
       body: JSON.stringify({ query, variables }),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
     const json = await response.json() as GraphQLResponse<T>;
+
+    if (!response.ok) {
+      const errorDetail = json.errors?.map(e => e.message).join(', ') || JSON.stringify(json);
+      throw new Error(`HTTP ${response.status}: ${errorDetail}`);
+    }
 
     if (json.errors) {
       const errorMsg = json.errors.map(e => e.message).join(', ');
@@ -103,29 +104,20 @@ async function gqlWithRetry<T>(
   }
 }
 
-async function getMe(): Promise<{ id: string; email: string; teams: Array<{ id: string; name: string }> }> {
+async function getMe(): Promise<{ id: string; email: string }> {
   const data = await gqlWithRetry<{
-    me: { id: string; email: string; teams: { edges: Array<{ node: { id: string; name: string } }> } }
+    me: { id: string; email: string }
   }>(`
     query {
       me {
         id
         email
-        teams {
-          edges {
-            node {
-              id
-              name
-            }
-          }
-        }
       }
     }
   `);
   return {
     id: data.me.id,
     email: data.me.email,
-    teams: data.me.teams.edges.map(e => e.node),
   };
 }
 
@@ -360,7 +352,7 @@ async function waitForServiceReady(
   projectId: string,
   serviceName: string,
   maxWaitMs = 60000
-): Promise<Service | null> {
+): Promise<Service | undefined> {
   const startTime = Date.now();
   while (Date.now() - startTime < maxWaitMs) {
     const project = await getProject(projectId);
@@ -374,7 +366,7 @@ async function waitForServiceReady(
     }
     await sleep(3000);
   }
-  return null;
+  return undefined;
 }
 
 async function main() {
@@ -388,9 +380,6 @@ async function main() {
   console.log('🔐 Verifying Railway authentication...');
   const me = await getMe();
   console.log(`   ✓ Authenticated as: ${me.email}`);
-  if (me.teams.length > 0) {
-    console.log(`   ✓ Teams: ${me.teams.map(t => t.name).join(', ')}`);
-  }
   console.log('');
 
   // Step 2: Get or create project
@@ -407,8 +396,7 @@ async function main() {
     console.log(`   ✓ Project: ${project.name}`);
   } else {
     console.log('📂 Creating new Railway project...');
-    const teamId = me.teams.length > 0 ? me.teams[0].id : undefined;
-    project = await createProject('Almoner', teamId);
+    project = await createProject('Almoner');
     projectId = project.id;
     console.log(`   ✓ Created project: ${project.name} (${projectId})`);
   }
