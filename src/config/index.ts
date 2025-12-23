@@ -44,7 +44,7 @@ export function loadConfig(): AlmonerConfig {
       host: process.env.FALKORDB_HOST || 'localhost',
       port: parseInt(process.env.FALKORDB_PORT || '6379', 10),
       password: process.env.FALKORDB_PASSWORD || undefined,
-      graphName: process.env.FALKORDB_GRAPH_NAME || 'almoner',
+      graphName: process.env.FALKORDB_GRAPH || 'almoner',
     },
     graphiti: {
       endpoint: process.env.GRAPHITI_ENDPOINT || '',

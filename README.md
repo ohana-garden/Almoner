@@ -35,7 +35,7 @@ cp .env.example .env
 Key environment variables:
 - `FALKORDB_HOST` - FalkorDB server host
 - `FALKORDB_PORT` - FalkorDB server port
-- `FALKORDB_GRAPH_NAME` - Name of the graph database
+- `FALKORDB_GRAPH` - Name of the graph database
 - `GRAPHITI_ENDPOINT` - Graphiti API endpoint
 - `GRAPHITI_API_KEY` - Graphiti API key
 

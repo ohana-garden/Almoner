@@ -218,7 +218,7 @@ export function configFromEnv(): ConnectionConfig {
   if (url) {
     return {
       url,
-      graphName: process.env.FALKORDB_GRAPH_NAME || 'almoner',
+      graphName: process.env.FALKORDB_GRAPH || 'almoner',
     };
   }
 
