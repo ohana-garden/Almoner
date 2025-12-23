@@ -19,6 +19,8 @@ import { GrantsGovClient } from './grants-gov-client';
 
 export { parse990ExtractCsv, download990Extract, getAvailable990Years } from './irs990-parser';
 export { GrantsGovClient, ELIGIBILITY_CODES, FUNDING_CATEGORIES } from './grants-gov-client';
+export { IngestionScheduler, createScheduler, loadSchedulerConfig } from './scheduler';
+export type { ScheduleConfig } from './scheduler';
 
 /** Status of an ingestion job */
 export type IngestionStatus = 'pending' | 'running' | 'completed' | 'failed';
