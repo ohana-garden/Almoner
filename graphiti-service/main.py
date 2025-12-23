@@ -19,10 +19,18 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from graphiti_core import Graphiti
-from graphiti_core.nodes import EpisodeType
-
 load_dotenv()
+
+# Try to import graphiti - it may fail if OpenAI key not set
+try:
+    from graphiti_core import Graphiti
+    from graphiti_core.nodes import EpisodeType
+    GRAPHITI_AVAILABLE = True
+except Exception as e:
+    print(f"Graphiti import failed: {e}")
+    Graphiti = None
+    EpisodeType = None
+    GRAPHITI_AVAILABLE = False
 
 # Configuration
 FALKORDB_URL = os.getenv("FALKORDB_URL", "redis://localhost:6379")
@@ -94,6 +102,13 @@ async def lifespan(app: FastAPI):
 
     print(f"Connecting to FalkorDB: {FALKORDB_URL}")
     print(f"Graph name: {FALKORDB_GRAPH}")
+    print(f"Graphiti available: {GRAPHITI_AVAILABLE}")
+
+    if not GRAPHITI_AVAILABLE:
+        print("Graphiti not available - service will run in degraded mode")
+        graphiti = None
+        yield
+        return
 
     try:
         # Parse FalkorDB URL

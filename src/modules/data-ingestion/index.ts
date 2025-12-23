@@ -13,7 +13,14 @@
 
 import type { GraphConnection } from '../graph-core';
 import type { EntityResolutionEngine } from '../entity-resolution';
-import type { Funder, Grant, Org } from '../../types/nodes';
+import type { Funder, Grant } from '../../types/nodes';
+import { parse990ExtractCsv, download990Extract } from './irs990-parser';
+import { GrantsGovClient } from './grants-gov-client';
+
+export { parse990ExtractCsv, download990Extract, getAvailable990Years } from './irs990-parser';
+export { GrantsGovClient, ELIGIBILITY_CODES, FUNDING_CATEGORIES } from './grants-gov-client';
+export { IngestionScheduler, createScheduler, loadSchedulerConfig } from './scheduler';
+export type { ScheduleConfig } from './scheduler';
 
 /** Status of an ingestion job */
 export type IngestionStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -76,7 +83,7 @@ export class DataIngestionEngine {
   }
 
   /**
-   * Start ingestion from IRS 990 bulk data.
+   * Start ingestion from IRS 990 bulk data file.
    */
   async ingest990Data(filePath: string): Promise<IngestionJob> {
     const job = this.createJob('irs_990');
@@ -86,6 +93,28 @@ export class DataIngestionEngine {
       job.status = 'failed';
       job.errors.push(error.message);
     });
+
+    return job;
+  }
+
+  /**
+   * Download and ingest 990 data for a specific year.
+   */
+  async ingest990Year(year: number, tempDir = '/tmp/almoner'): Promise<IngestionJob> {
+    const job = this.createJob('irs_990');
+
+    // Download and process asynchronously
+    (async () => {
+      try {
+        console.log(`Downloading 990 data for year ${year}...`);
+        const filePath = await download990Extract(year, tempDir);
+        console.log(`Downloaded to ${filePath}, starting ingestion...`);
+        await this.process990FileStreaming(job, filePath);
+      } catch (error) {
+        job.status = 'failed';
+        job.errors.push(error instanceof Error ? error.message : String(error));
+      }
+    })();
 
     return job;
   }
@@ -124,18 +153,11 @@ export class DataIngestionEngine {
   }
 
   /**
-   * Process a 990 data file.
+   * Process a 990 data file (loads all records into memory).
    */
   private async process990File(job: IngestionJob, filePath: string): Promise<void> {
     job.status = 'running';
 
-    // In production, this would:
-    // 1. Stream the 990 bulk data file
-    // 2. Parse each record
-    // 3. Run through Entity Resolution
-    // 4. Create/update Funder and Org nodes
-
-    // Placeholder implementation
     const records = await this.read990File(filePath);
 
     for (const record of records) {
@@ -146,6 +168,38 @@ export class DataIngestionEngine {
         job.recordsFailed++;
         job.errors.push(`EIN ${record.ein}: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    job.status = 'completed';
+    job.completedAt = new Date();
+  }
+
+  /**
+   * Process a 990 data file with streaming (memory efficient).
+   */
+  private async process990FileStreaming(job: IngestionJob, filePath: string): Promise<void> {
+    job.status = 'running';
+
+    const result = await parse990ExtractCsv(
+      filePath,
+      async (record) => {
+        try {
+          await this.processOne990Record(record);
+          job.recordsProcessed++;
+        } catch (error) {
+          job.recordsFailed++;
+          job.errors.push(`EIN ${record.ein}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      },
+      {
+        onProgress: (count) => {
+          console.log(`Processed ${count} 990 records...`);
+        },
+      }
+    );
+
+    if (result.errors.length > 0) {
+      job.errors.push(...result.errors);
     }
 
     job.status = 'completed';
@@ -291,25 +345,46 @@ export class DataIngestionEngine {
   }
 
   /**
-   * Read 990 file (placeholder - implement actual parsing).
+   * Read 990 file using the CSV parser.
    */
   private async read990File(filePath: string): Promise<Raw990Record[]> {
-    // In production: parse actual IRS 990 data format
-    // This is a placeholder that returns empty array
-    console.log(`Would read 990 data from: ${filePath}`);
-    return [];
+    const records: Raw990Record[] = [];
+
+    await parse990ExtractCsv(
+      filePath,
+      async (record) => {
+        records.push(record);
+      },
+      {
+        onProgress: (count) => {
+          console.log(`Parsed ${count} 990 records...`);
+        },
+      }
+    );
+
+    return records;
   }
 
   /**
-   * Fetch from Grants.gov API (placeholder - implement actual API calls).
+   * Fetch from Grants.gov API.
    */
   private async fetchGrantsGov(
     options: { keyword?: string; agency?: string; eligibility?: string }
   ): Promise<RawGrantRecord[]> {
-    // In production: call actual Grants.gov API
-    // This is a placeholder that returns empty array
-    console.log('Would fetch grants with options:', options);
-    return [];
+    const client = new GrantsGovClient(process.env.GRANTS_GOV_API_KEY);
+
+    return client.fetchAll(
+      {
+        keyword: options.keyword,
+        agency: options.agency,
+        eligibility: options.eligibility,
+        oppStatus: 'posted',
+        rows: 100,
+      },
+      (fetched, total) => {
+        console.log(`Fetched ${fetched}/${total} grants...`);
+      }
+    );
   }
 
   /**
