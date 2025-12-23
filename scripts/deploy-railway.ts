@@ -77,11 +77,12 @@ async function gqlWithRetry<T>(
       body: JSON.stringify({ query, variables }),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
     const json = await response.json() as GraphQLResponse<T>;
+
+    if (!response.ok) {
+      const errorDetail = json.errors?.map(e => e.message).join(', ') || JSON.stringify(json);
+      throw new Error(`HTTP ${response.status}: ${errorDetail}`);
+    }
 
     if (json.errors) {
       const errorMsg = json.errors.map(e => e.message).join(', ');
