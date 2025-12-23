@@ -8,10 +8,13 @@
 import 'dotenv/config';
 import * as http from 'http';
 import { GraphConnection, configFromEnv } from './modules/graph-core/connection';
+import { createEntityResolutionEngine } from './modules/entity-resolution';
+import { createDataIngestionEngine, IngestionJob } from './modules/data-ingestion';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 let connection: GraphConnection | null = null;
+let dataIngestion: ReturnType<typeof createDataIngestionEngine> | null = null;
 
 async function getConnection(): Promise<GraphConnection> {
   if (!connection) {
@@ -20,6 +23,15 @@ async function getConnection(): Promise<GraphConnection> {
     await connection.connect();
   }
   return connection;
+}
+
+async function getDataIngestion() {
+  if (!dataIngestion) {
+    const conn = await getConnection();
+    const entityResolution = createEntityResolutionEngine(conn);
+    dataIngestion = createDataIngestionEngine(conn, entityResolution);
+  }
+  return dataIngestion;
 }
 
 async function handleRequest(
@@ -216,11 +228,110 @@ async function handleRequest(
         break;
       }
 
+      case '/ingest/990': {
+        // Trigger 990 ingestion
+        if (req.method !== 'POST') {
+          res.writeHead(405);
+          res.end(JSON.stringify({ error: 'Use POST to trigger ingestion' }));
+          break;
+        }
+
+        const ingestion = await getDataIngestion();
+        const year = url.searchParams.get('year')
+          ? parseInt(url.searchParams.get('year')!, 10)
+          : new Date().getFullYear() - 1;
+
+        const job = await ingestion.ingest990Year(year);
+
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          success: true,
+          jobId: job.id,
+          year,
+          message: `Started 990 ingestion for year ${year}. Check /ingest/status/${job.id} for progress.`,
+        }));
+        break;
+      }
+
+      case '/ingest/grants': {
+        // Trigger Grants.gov ingestion
+        if (req.method !== 'POST') {
+          res.writeHead(405);
+          res.end(JSON.stringify({ error: 'Use POST to trigger ingestion' }));
+          break;
+        }
+
+        const ingestion = await getDataIngestion();
+        const keyword = url.searchParams.get('keyword') || 'nonprofit';
+
+        const job = await ingestion.ingestGrantsGov({ keyword });
+
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          success: true,
+          jobId: job.id,
+          keyword,
+          message: `Started Grants.gov ingestion for "${keyword}". Check /ingest/status/${job.id} for progress.`,
+        }));
+        break;
+      }
+
+      case '/ingest/jobs': {
+        // List all ingestion jobs
+        const ingestion = await getDataIngestion();
+        const jobs = ingestion.listJobs();
+
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          jobs: jobs.map(j => ({
+            id: j.id,
+            source: j.source,
+            status: j.status,
+            recordsProcessed: j.recordsProcessed,
+            recordsFailed: j.recordsFailed,
+            startedAt: j.startedAt,
+            completedAt: j.completedAt,
+            errorCount: j.errors.length,
+          })),
+        }));
+        break;
+      }
+
       default: {
+        // Check for dynamic routes
+        if (url.pathname.startsWith('/ingest/status/')) {
+          const jobId = url.pathname.replace('/ingest/status/', '');
+          const ingestion = await getDataIngestion();
+          const job = ingestion.getJobStatus(jobId);
+
+          if (!job) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Job not found' }));
+            break;
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({
+            id: job.id,
+            source: job.source,
+            status: job.status,
+            recordsProcessed: job.recordsProcessed,
+            recordsFailed: job.recordsFailed,
+            startedAt: job.startedAt,
+            completedAt: job.completedAt,
+            errors: job.errors.slice(0, 10), // Show first 10 errors
+            totalErrors: job.errors.length,
+          }));
+          break;
+        }
+
         res.writeHead(404);
         res.end(JSON.stringify({
           error: 'Not found',
-          endpoints: ['/', '/health', '/stats', '/nodes', '/seed (POST)', '/test'],
+          endpoints: [
+            '/', '/health', '/stats', '/nodes', '/seed (POST)', '/test',
+            '/ingest/990 (POST)', '/ingest/grants (POST)', '/ingest/jobs', '/ingest/status/:jobId'
+          ],
         }));
       }
     }
