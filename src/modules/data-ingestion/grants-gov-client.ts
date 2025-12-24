@@ -96,7 +96,8 @@ export class GrantsGovClient {
     const response = await fetch(url, { headers });
 
     if (!response.ok) {
-      throw new Error(`Grants.gov API error: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Grants.gov API error: ${response.status} ${response.statusText} - ${errorBody}`);
     }
 
     const data = (await response.json()) as GrantsGovResponse;
@@ -162,7 +163,8 @@ export class GrantsGovClient {
       const response = await fetch(url, { headers });
 
       if (!response.ok) {
-        throw new Error(`Grants.gov API error: ${response.statusText}`);
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(`Grants.gov API error: ${response.status} ${response.statusText} - ${errorBody}`);
       }
 
       const data = (await response.json()) as GrantsGovResponse;
