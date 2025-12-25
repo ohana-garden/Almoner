@@ -1,8 +1,6 @@
 /**
  * Graph Core: Schema Enforcement
- *
- * First Principle: Graph is source of truth.
- * This module enforces the graph schema defined in types.
+ * Refactored to include new Opportunity Hunter indexes.
  */
 
 import type { NodeLabel } from '../../types/nodes';
@@ -29,14 +27,20 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Activity', property: 'id', type: 'exact' },
   { label: 'Output', property: 'id', type: 'exact' },
   { label: 'FocusArea', property: 'id', type: 'exact' },
-  
-  // Operational nodes
   { label: 'IngestionJob', property: 'id', type: 'exact' },
+  
+  // New Package IDs
+  { label: 'BenefitPackage', property: 'id', type: 'exact' },
+  { label: 'CommitmentPackage', property: 'id', type: 'exact' },
+  { label: 'EligibilityConstraint', property: 'id', type: 'exact' },
+  { label: 'Deadline', property: 'id', type: 'exact' },
+  { label: 'Opportunity', property: 'id', type: 'exact' },
 
   // Search indexes
   { label: 'Funder', property: 'name', type: 'fulltext' },
   { label: 'Grant', property: 'title', type: 'fulltext' },
   { label: 'Scholarship', property: 'title', type: 'fulltext' },
+  { label: 'Opportunity', property: 'title', type: 'fulltext' }, // New
   { label: 'Org', property: 'name', type: 'fulltext' },
   { label: 'Org', property: 'ein', type: 'exact' },
   { label: 'Person', property: 'name', type: 'fulltext' },
@@ -45,13 +49,16 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Project', property: 'name', type: 'fulltext' },
   { label: 'FocusArea', property: 'name', type: 'fulltext' },
 
-  // Temporal & Filtering indexes (Critical for Matching Engine)
+  // Temporal & Filtering
   { label: 'Grant', property: 'deadline', type: 'exact' },
   { label: 'Grant', property: 'amountMin', type: 'exact' },
   { label: 'Grant', property: 'amountMax', type: 'exact' },
   { label: 'Scholarship', property: 'deadline', type: 'exact' },
   { label: 'Contribution', property: 'timestamp', type: 'exact' },
   { label: 'Contribution', property: 'synced', type: 'exact' },
+  // New Filtering
+  { label: 'Opportunity', property: 'status', type: 'exact' },
+  { label: 'Opportunity', property: 'opportunityType', type: 'exact' },
 ];
 
 export class SchemaManager {

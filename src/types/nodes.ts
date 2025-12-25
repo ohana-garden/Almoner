@@ -1,51 +1,90 @@
 /**
- * Node Type Definitions for Almoner Graph Schema
- *
- * First Principle: Graph is source of truth.
- * All entities exist as nodes. Nothing exists outside the graph.
+ * Node Type Definitions - EVOLVED (Opportunity Hunter Model)
+ * Includes richer 'Package' nodes for complex matching.
  */
 
-/** Funder types supported by the system */
 export type FunderType = 'foundation' | 'corporate' | 'government' | 'daf' | 'individual';
-
-/** Site types for contribution locations */
 export type SiteType = 'garden' | 'distribution' | 'event' | 'other';
+export type OpportunityType = 'GRANT' | 'SCHOLARSHIP' | 'INTERNSHIP' | 'VOLUNTEER' | 'FELLOWSHIP' | 'SERVICE_ROLE';
+export type OpportunityStatus = 'ACTIVE' | 'MODIFIED' | 'CLOSED' | 'CANCELLED' | 'ARCHIVED';
 
-/** Amount range for grants and scholarships */
-export interface AmountRange {
-  min: number;
-  max: number;
-}
+// --- Legacy Interfaces (kept for backward compatibility) ---
+export interface AmountRange { min: number; max: number; }
+export interface GeoLocation { lat: number; lng: number; }
+export interface HoursRange { min: number; max: number; }
 
-/** Geographic coordinates */
-export interface GeoLocation {
-  lat: number;
-  lng: number;
-}
-
-/** Scholarship eligibility criteria */
-export interface ScholarshipEligibility {
-  geoRestriction: string[];
-  fieldOfStudy: string[];
-  demographics: string[];
-  gpaMin?: number;
-  otherCriteria: string[];
-}
-
-/** Hours range for opportunities */
-export interface HoursRange {
-  min: number;
-  max: number;
-}
-
-/** Opportunity schedule type */
-export type OpportunitySchedule = 'weekly' | 'one-time' | 'flexible';
+// --- New "Hunter" Primitives ---
 
 /**
- * Funder Node
- * Represents foundations, corporations, government entities, DAFs, or individuals
- * that provide funding for grants or scholarships.
+ * BenefitPackage Node
+ * Captures what the opportunity *gives* to the recipient.
  */
+export interface BenefitPackage {
+  id: string;
+  // Cash
+  cashAmountMin?: number;
+  cashAmountMax?: number;
+  currency?: string;
+  // Wage
+  wageHourlyMin?: number;
+  wageHourlyMax?: number;
+  // In-Kind / Other
+  tuitionCovered?: boolean;
+  housing?: boolean;
+  meals?: boolean;
+  travel?: boolean;
+  training?: boolean;
+  equipment?: boolean;
+  credential?: string; // 'certificate', 'degree', 'reference'
+  description?: string;
+}
+
+/**
+ * CommitmentPackage Node
+ * Captures what the opportunity *takes* from the recipient (time/effort).
+ */
+export interface CommitmentPackage {
+  id: string;
+  hoursPerWeekMin?: number;
+  hoursPerWeekMax?: number;
+  durationWeeks?: number;
+  startDate?: Date;
+  endDate?: Date;
+  locationType?: 'REMOTE' | 'ONSITE' | 'HYBRID' | 'FIELD';
+  duties?: string[]; // JSON array string
+  description?: string;
+}
+
+/**
+ * EligibilityConstraint Node
+ * Explicit rules for who can apply.
+ */
+export interface EligibilityConstraint {
+  id: string;
+  applicantType?: 'individual' | 'org';
+  citizenship?: string[];
+  minAge?: number;
+  maxAge?: number;
+  degreeLevel?: string;
+  enrollmentStatus?: string;
+  geoResidency?: string[];
+  keywordsInclude?: string[];
+  keywordsExclude?: string[];
+}
+
+/**
+ * Deadline Node
+ * Specific timing constraints.
+ */
+export interface Deadline {
+  id: string;
+  type: 'ROLLING' | 'FIXED' | 'LOI' | 'INTERNAL';
+  date?: Date;
+  timezone?: string;
+}
+
+// --- Core Entities ---
+
 export interface Funder {
   id: string;
   name: string;
@@ -56,59 +95,6 @@ export interface Funder {
   source: string[];
 }
 
-/**
- * Grant Node
- * Represents a funding opportunity offered by a Funder to Organizations.
- */
-export interface Grant {
-  id: string;
-  title: string;
-  amount: AmountRange;
-  deadline: Date;
-  eligibility: string[];
-  focusAreas: string[];
-  applicationUrl: string;
-  lastUpdated: Date;
-}
-
-/**
- * Scholarship Node
- * Represents a funding opportunity offered by a Funder to Persons.
- */
-export interface Scholarship {
-  id: string;
-  title: string;
-  amount: AmountRange;
-  deadline: Date;
-  eligibility: ScholarshipEligibility;
-  applicationUrl: string;
-  renewable: boolean;
-  lastUpdated: Date;
-}
-
-/**
- * Opportunity Node
- * Represents a volunteer opportunity offered by an Org.
- * Unlike Grants/Scholarships, opportunities are measured in hours, not money.
- */
-export interface Opportunity {
-  id: string;
-  title: string;
-  description: string;
-  hoursNeeded: HoursRange;
-  schedule: OpportunitySchedule;
-  siteId?: string;
-  skills: string[];
-  focusAreas: string[];
-  deadline?: Date;
-  spotsAvailable: number;
-  lastUpdated: Date;
-}
-
-/**
- * Organization Node
- * Represents a non-profit, fiscal sponsor, or other organizational entity.
- */
 export interface Org {
   id: string;
   name: string;
@@ -120,23 +106,14 @@ export interface Org {
   verified: boolean;
 }
 
-/**
- * Person Node
- * Represents an individual—volunteer, applicant, or beneficiary.
- */
 export interface Person {
   id: string;
   name: string;
   location?: string;
   interests: string[];
-  affiliations: string[]; // orgId references
+  affiliations: string[]; 
 }
 
-/**
- * Site Node
- * Represents a physical location where contributions occur.
- * Used for NFC-based check-in during capture.
- */
 export interface Site {
   id: string;
   name: string;
@@ -145,10 +122,6 @@ export interface Site {
   type: SiteType;
 }
 
-/**
- * Project Node
- * Represents a specific initiative run by an Organization.
- */
 export interface Project {
   id: string;
   name: string;
@@ -157,29 +130,67 @@ export interface Project {
 }
 
 /**
- * Contribution Node
- * Records a volunteer's contribution—the core unit of Kala generation.
- *
- * First Principle: Capture is ritual.
- * Volunteers actively claim their contribution. Not surveillance.
- *
- * First Principle: Offline-first.
- * synced=false until successfully synchronized with FalkorDB.
+ * Opportunity Node (Unified)
+ * Represents Grants, Scholarships, Internships, etc.
+ * Now links to Benefit/Commitment packages via edges.
  */
+export interface Opportunity {
+  id: string;
+  title: string;
+  // Standard fields
+  summary?: string;
+  description: string; // legacy support
+  opportunityType: OpportunityType; 
+  status: OpportunityStatus;
+  
+  // Source tracking
+  sourceSystem?: string; // 'GRANTS_GOV', 'USAJOBS', etc.
+  sourceKey?: string;
+  primaryUrl?: string;
+  
+  // Legacy fields (maintained for Phase 1 code)
+  hoursNeeded?: HoursRange; 
+  schedule?: 'weekly' | 'one-time' | 'flexible';
+  siteId?: string;
+  skills?: string[];
+  focusAreas: string[];
+  deadline?: Date; // direct property for simple querying
+  spotsAvailable?: number;
+  lastUpdated: Date;
+}
+
+// Legacy Grant/Scholarship (can eventually be merged into Opportunity)
+export interface Grant {
+  id: string;
+  title: string;
+  amount: AmountRange;
+  deadline: Date;
+  eligibility: string[];
+  focusAreas: string[];
+  applicationUrl: string;
+  lastUpdated: Date;
+}
+
+export interface Scholarship {
+  id: string;
+  title: string;
+  amount: AmountRange;
+  deadline: Date;
+  eligibility: any;
+  applicationUrl: string;
+  renewable: boolean;
+  lastUpdated: Date;
+}
+
 export interface Contribution {
   id: string;
   timestamp: Date;
-  duration: number; // minutes
+  duration: number;
   kalaGenerated: number;
-  mediaRef?: string; // reference to photo/video
+  mediaRef?: string;
   synced: boolean;
 }
 
-/**
- * Activity Node
- * Represents an action or event enabled by funding.
- * Used for tracing ripple effects.
- */
 export interface Activity {
   id: string;
   type: string;
@@ -187,11 +198,6 @@ export interface Activity {
   timestamp: Date;
 }
 
-/**
- * Output Node
- * Represents a tangible result of an Activity (e.g., produce distributed).
- * Used for downstream impact tracing.
- */
 export interface Output {
   id: string;
   type: string;
@@ -201,43 +207,18 @@ export interface Output {
   timestamp: Date;
 }
 
-/**
- * FocusArea Node
- * Represents a domain or category of work (e.g., "food security", "education").
- * Used for matching and filtering.
- */
 export interface FocusArea {
   id: string;
   name: string;
   description?: string;
 }
 
-/** Union type of all node types */
 export type NodeType =
-  | Funder
-  | Grant
-  | Scholarship
-  | Opportunity
-  | Org
-  | Person
-  | Site
-  | Project
-  | Contribution
-  | Activity
-  | Output
-  | FocusArea;
+  | Funder | Grant | Scholarship | Opportunity | Org | Person
+  | Site | Project | Contribution | Activity | Output | FocusArea
+  | BenefitPackage | CommitmentPackage | EligibilityConstraint | Deadline; // New
 
-/** Node type labels for Cypher queries */
 export type NodeLabel =
-  | 'Funder'
-  | 'Grant'
-  | 'Scholarship'
-  | 'Opportunity'
-  | 'Org'
-  | 'Person'
-  | 'Site'
-  | 'Project'
-  | 'Contribution'
-  | 'Activity'
-  | 'Output'
-  | 'FocusArea';
+  | 'Funder' | 'Grant' | 'Scholarship' | 'Opportunity' | 'Org' | 'Person'
+  | 'Site' | 'Project' | 'Contribution' | 'Activity' | 'Output' | 'FocusArea'
+  | 'BenefitPackage' | 'CommitmentPackage' | 'EligibilityConstraint' | 'Deadline'; // New
