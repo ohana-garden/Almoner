@@ -157,6 +157,12 @@ export class GrantsGovClient {
 
       console.log(`Got ${oppHits.length} opportunities (total: ${hitCount})`);
 
+      // Log first record structure for debugging
+      if (oppHits.length > 0 && startRecordNum === 0) {
+        console.log('Sample opportunity keys:', Object.keys(oppHits[0]));
+        console.log('Sample opportunity:', JSON.stringify(oppHits[0]).slice(0, 500));
+      }
+
       const records = this.transformResults(oppHits);
       allRecords.push(...records);
 
@@ -237,27 +243,67 @@ export class GrantsGovClient {
    */
   private transformResults(oppHits: OpportunityHit[]): RawGrantRecord[] {
     return oppHits.map((opp) => {
+      // Cast to handle various field name possibilities
+      const o = opp as unknown as Record<string, unknown>;
+
+      // Try various field names for opportunity ID
+      const opportunityId = String(
+        o.opportunityNumber || o.oppNumber || o.opportunity_number ||
+        o.opportunityId || o.id || o.oppId || 'unknown'
+      );
+
+      // Try various field names for title
+      const opportunityTitle = String(
+        o.opportunityTitle || o.oppTitle || o.opportunity_title ||
+        o.title || o.name || 'Untitled'
+      );
+
       // Extract agency name from various possible fields
-      const agencyName = opp.agencyName || opp.agencyCode || '';
+      const agencyName = String(
+        o.agencyName || o.agency || o.agencyCode || o.agency_name || ''
+      );
 
-      // Extract eligible applicants from applicantTypes array
-      const eligibleApplicants = opp.applicantTypes
-        ? opp.applicantTypes.map((t) => t.description)
-        : [];
+      // Extract eligible applicants - handle both array of objects and strings
+      let eligibleApplicants: string[] = [];
+      if (Array.isArray(o.applicantTypes)) {
+        eligibleApplicants = o.applicantTypes.map((t: unknown) =>
+          typeof t === 'string' ? t : (t as { description?: string })?.description || ''
+        ).filter(Boolean);
+      } else if (Array.isArray(o.eligibilities)) {
+        eligibleApplicants = o.eligibilities.map((e: unknown) =>
+          typeof e === 'string' ? e : String(e)
+        );
+      }
 
-      // Extract funding category from fundingActivityCategories
-      const categoryOfFunding = opp.fundingActivityCategories?.[0]?.description || 'Other';
+      // Extract funding category
+      let categoryOfFunding = 'Other';
+      if (Array.isArray(o.fundingActivityCategories) && o.fundingActivityCategories.length > 0) {
+        const cat = o.fundingActivityCategories[0];
+        categoryOfFunding = typeof cat === 'string' ? cat : (cat as { description?: string })?.description || 'Other';
+      } else if (o.category || o.fundingCategory) {
+        categoryOfFunding = String(o.category || o.fundingCategory);
+      }
+
+      // Get close date - try various field names
+      const closeDate = String(
+        o.closingDate || o.closeDate || o.close_date ||
+        o.applicationDeadline || o.deadline || ''
+      );
+
+      // Get award amounts
+      const awardCeiling = Number(o.awardCeiling || o.award_ceiling || o.maxAward || 0);
+      const awardFloor = Number(o.awardFloor || o.award_floor || o.minAward || 0);
 
       // Build application URL
-      const applicationUrl = `https://www.grants.gov/search-results-detail/${opp.opportunityNumber}`;
+      const applicationUrl = `https://www.grants.gov/search-results-detail/${opportunityId}`;
 
       return {
-        opportunityId: opp.opportunityNumber,
-        opportunityTitle: opp.opportunityTitle,
+        opportunityId,
+        opportunityTitle,
         agencyName,
-        awardCeiling: opp.awardCeiling || 0,
-        awardFloor: opp.awardFloor || 0,
-        closeDate: opp.closingDate || '',
+        awardCeiling,
+        awardFloor,
+        closeDate,
         eligibleApplicants,
         categoryOfFunding,
         applicationUrl,
