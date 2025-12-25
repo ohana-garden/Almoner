@@ -1,8 +1,7 @@
 /**
- * Kala Engine Module - REFACTORED
+ * Kala Engine Module - REFACTORED & FIXED
  * Purpose: Calculate and record Kala from contributions
- * * Optimization: getKalaByPeriod now uses Cypher substring aggregation.
- * This reduces data transfer and lets the DB handle the grouping.
+ * * Optimization: Uses Cypher substring aggregation.
  */
 
 import type { GraphConnection } from '../graph-core';
@@ -64,7 +63,7 @@ export class KalaEngine {
 
     // Transactional-like creation
     await this.connection.mutate(
-      \`CREATE (c:Contribution \$props) RETURN c\`,
+      `CREATE (c:Contribution $props) RETURN c`,
       {
         props: {
           ...contribution,
@@ -75,20 +74,20 @@ export class KalaEngine {
 
     // Link Person
     await this.connection.mutate(
-      \`MATCH (p:Person {id: \$pid}), (c:Contribution {id: \$cid}) CREATE (p)-[:CONTRIBUTED]->(c)\`,
+      `MATCH (p:Person {id: $pid}), (c:Contribution {id: $cid}) CREATE (p)-[:CONTRIBUTED]->(c)`,
       { pid: personId, cid: contribution.id }
     );
 
     // Link Site/Project
     if (options.siteId) {
       await this.connection.mutate(
-        \`MATCH (c:Contribution {id: \$cid}), (s:Site {id: \$sid}) CREATE (c)-[:AT]->(s)\`,
+        `MATCH (c:Contribution {id: $cid}), (s:Site {id: $sid}) CREATE (c)-[:AT]->(s)`,
         { cid: contribution.id, sid: options.siteId }
       );
     }
     if (options.projectId) {
       await this.connection.mutate(
-        \`MATCH (c:Contribution {id: \$cid}), (p:Project {id: \$pid}) CREATE (c)-[:FOR]->(p)\`,
+        `MATCH (c:Contribution {id: $cid}), (p:Project {id: $pid}) CREATE (c)-[:FOR]->(p)`,
         { cid: contribution.id, pid: options.projectId }
       );
     }
@@ -97,8 +96,8 @@ export class KalaEngine {
   }
 
   async getPersonKala(personId: string): Promise<KalaSummary> {
-    const cypher = \`
-      MATCH (p:Person {id: \$personId})
+    const cypher = `
+      MATCH (p:Person {id: $personId})
       OPTIONAL MATCH (p)-[:CONTRIBUTED]->(c:Contribution)
       RETURN
         p.id as personId,
@@ -108,7 +107,7 @@ export class KalaEngine {
         sum(c.duration) as totalMinutes,
         min(c.timestamp) as first,
         max(c.timestamp) as last
-    \`;
+    `;
 
     const results = await this.connection.query<any>(cypher, { personId });
     const r = results[0];
@@ -131,25 +130,19 @@ export class KalaEngine {
     personId: string,
     granularity: 'day' | 'week' | 'month'
   ): Promise<KalaByPeriod[]> {
-    // Determine substring length for ISO date grouping
-    // YYYY-MM-DD = 10 chars (Day)
-    // YYYY-MM    = 7 chars (Month)
-    // Week is trickier in Cypher without APOC, but we can group by days and aggregate in JS for weeks,
-    // or use substring(0,10) for days and substring(0,7) for months directly.
-    
     let substringLen = 10; // Default Day
     if (granularity === 'month') substringLen = 7;
 
-    const cypher = \`
-      MATCH (p:Person {id: \$personId})-[:CONTRIBUTED]->(c:Contribution)
-      WITH c, substring(c.timestamp, 0, \${substringLen}) as period
+    const cypher = `
+      MATCH (p:Person {id: $personId})-[:CONTRIBUTED]->(c:Contribution)
+      WITH c, substring(c.timestamp, 0, ${substringLen}) as period
       RETURN 
         period,
         sum(c.kalaGenerated) as kala,
         count(c) as contributions,
         sum(c.duration) as minutes
       ORDER BY period ASC
-    \`;
+    `;
 
     const results = await this.connection.query<{
       period: string;
@@ -157,15 +150,12 @@ export class KalaEngine {
       contributions: number;
       minutes: number;
     }>(cypher, { personId });
-
-    // Note: If 'week' is requested, we might need JS post-processing or more complex Cypher.
-    // For Phase 1 cleanup, we support Day/Month natively via DB.
     
     return results;
   }
 
   async getLeaderboard(limit = 10): Promise<KalaSummary[]> {
-    const cypher = \`
+    const cypher = `
       MATCH (p:Person)-[:CONTRIBUTED]->(c:Contribution)
       RETURN
         p.id as personId,
@@ -174,8 +164,8 @@ export class KalaEngine {
         count(c) as totalContributions,
         sum(c.duration) as totalMinutes
       ORDER BY totalKala DESC
-      LIMIT \$limit
-    \`;
+      LIMIT $limit
+    `;
     const results = await this.connection.query<any>(cypher, { limit });
     return results.map(r => ({
       personId: r.personId,
