@@ -270,46 +270,61 @@ export class DataIngestionEngine {
    * Process a single grant record.
    */
   private async processOneGrantRecord(record: RawGrantRecord): Promise<void> {
+    // Validate required fields
+    if (!record.opportunityId || record.opportunityId === 'unknown') {
+      throw new Error('Missing opportunity ID');
+    }
+    if (!record.opportunityTitle || record.opportunityTitle === 'Untitled') {
+      throw new Error('Missing opportunity title');
+    }
+
     // First, resolve the funding agency
+    const agencyName = record.agencyName || 'Unknown Agency';
     const funderResult = await this.entityResolution.resolveFunder({
-      name: record.agencyName,
+      name: agencyName,
       type: 'government',
-      focusAreas: [record.categoryOfFunding],
+      focusAreas: [record.categoryOfFunding || 'Other'],
       geoFocus: ['US'],
-      totalGiving: 0, // Unknown from grants.gov data
+      totalGiving: 0,
       source: ['grants_gov'],
     });
 
-    // Create the Grant node
-    const grant: Omit<Grant, 'id'> = {
-      title: record.opportunityTitle,
-      amount: { min: record.awardFloor, max: record.awardCeiling },
-      deadline: new Date(record.closeDate),
-      eligibility: record.eligibleApplicants,
-      focusAreas: [record.categoryOfFunding],
-      applicationUrl: record.applicationUrl,
-      lastUpdated: new Date(),
-    };
+    // Parse deadline safely - use null if invalid
+    let deadline: Date | null = null;
+    if (record.closeDate && record.closeDate.trim()) {
+      const parsed = new Date(record.closeDate);
+      if (!isNaN(parsed.getTime())) {
+        deadline = parsed;
+      }
+    }
 
     const grantId = crypto.randomUUID();
+    const now = new Date();
+
+    // Build properties object with only valid values
+    const properties: Record<string, string | number> = {
+      id: grantId,
+      title: record.opportunityTitle,
+      opportunityId: record.opportunityId,
+      amountMin: record.awardFloor || 0,
+      amountMax: record.awardCeiling || 0,
+      eligibility: JSON.stringify(record.eligibleApplicants || []),
+      focusAreas: JSON.stringify([record.categoryOfFunding || 'Other']),
+      applicationUrl: record.applicationUrl || '',
+      lastUpdated: now.toISOString(),
+    };
+
+    // Only add deadline if valid
+    if (deadline) {
+      properties.deadline = deadline.toISOString();
+    }
 
     const cypher = `
       CREATE (g:Grant $properties)
       RETURN g
     `;
 
-    await this.connection.mutate(cypher, {
-      properties: {
-        id: grantId,
-        title: grant.title,
-        amount: JSON.stringify(grant.amount),
-        deadline: grant.deadline.toISOString(),
-        eligibility: JSON.stringify(grant.eligibility),
-        focusAreas: JSON.stringify(grant.focusAreas),
-        applicationUrl: grant.applicationUrl,
-        lastUpdated: grant.lastUpdated.toISOString(),
-      },
-    });
+    await this.connection.mutate(cypher, { properties });
 
     // Create OFFERS edge from Funder to Grant
     const edgeCypher = `
@@ -322,7 +337,7 @@ export class DataIngestionEngine {
       funderId: funderResult.entity.id,
       grantId,
       edgeId: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
+      createdAt: now.toISOString(),
     });
   }
 
