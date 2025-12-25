@@ -3,11 +3,6 @@
  *
  * First Principle: Graph is source of truth.
  * This module enforces the graph schema defined in types.
- *
- * Module boundary: This module knows NOTHING about:
- * - Kala, matching, ripples
- * - Business logic
- * - UI or capture mechanisms
  */
 
 import type { NodeLabel } from '../../types/nodes';
@@ -15,14 +10,12 @@ import type { EdgeLabel } from '../../types/edges';
 import { EDGE_SCHEMA } from '../../types/edges';
 import { GraphConnection } from './connection';
 
-/** Index definition for a node property */
 export interface IndexDefinition {
-  label: NodeLabel;
+  label: NodeLabel | 'IngestionJob';
   property: string;
   type: 'exact' | 'fulltext';
 }
 
-/** Required indexes for efficient queries */
 export const REQUIRED_INDEXES: IndexDefinition[] = [
   // Primary keys
   { label: 'Funder', property: 'id', type: 'exact' },
@@ -36,6 +29,9 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Activity', property: 'id', type: 'exact' },
   { label: 'Output', property: 'id', type: 'exact' },
   { label: 'FocusArea', property: 'id', type: 'exact' },
+  
+  // Operational nodes (New!)
+  { label: 'IngestionJob', property: 'id', type: 'exact' },
 
   // Search indexes
   { label: 'Funder', property: 'name', type: 'fulltext' },
@@ -56,9 +52,6 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Contribution', property: 'synced', type: 'exact' },
 ];
 
-/**
- * Schema manager for FalkorDB graph.
- */
 export class SchemaManager {
   private connection: GraphConnection;
 
@@ -66,23 +59,15 @@ export class SchemaManager {
     this.connection = connection;
   }
 
-  /**
-   * Initialize schema: create all required indexes.
-   */
   async initializeSchema(): Promise<void> {
     for (const index of REQUIRED_INDEXES) {
       await this.createIndex(index);
     }
   }
 
-  /**
-   * Create an index on a node property.
-   */
   async createIndex(index: IndexDefinition): Promise<void> {
     const { label, property, type } = index;
-
     // FalkorDB uses CREATE INDEX syntax
-    // For fulltext, we'd use a different approach in production
     const cypher =
       type === 'exact'
         ? `CREATE INDEX FOR (n:${label}) ON (n.${property})`
@@ -91,7 +76,6 @@ export class SchemaManager {
     try {
       await this.connection.mutate(cypher);
     } catch (error) {
-      // Index might already exist - that's okay
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes('already exists')) {
         throw error;
@@ -99,9 +83,6 @@ export class SchemaManager {
     }
   }
 
-  /**
-   * Validate that an edge type is allowed between two node labels.
-   */
   validateEdge(edgeType: EdgeLabel, fromLabel: NodeLabel, toLabel: NodeLabel): boolean {
     return EDGE_SCHEMA.some(
       (def) =>
@@ -109,31 +90,18 @@ export class SchemaManager {
     );
   }
 
-  /**
-   * Get all valid edge types for a source node label.
-   */
   getValidEdgesFrom(fromLabel: NodeLabel): EdgeLabel[] {
     return EDGE_SCHEMA.filter((def) => def.fromLabel === fromLabel).map((def) => def.type);
   }
 
-  /**
-   * Get all valid edge types for a target node label.
-   */
   getValidEdgesTo(toLabel: NodeLabel): EdgeLabel[] {
     return EDGE_SCHEMA.filter((def) => def.toLabel === toLabel).map((def) => def.type);
   }
 
-  /**
-   * Drop all data from the graph (use with caution!).
-   * Primarily for testing.
-   */
   async dropAll(): Promise<void> {
     await this.connection.mutate('MATCH (n) DETACH DELETE n');
   }
 
-  /**
-   * Get schema statistics.
-   */
   async getStats(): Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -149,20 +117,11 @@ export class SchemaManager {
     const nodeCount = nodeCountResult[0]?.count ?? 0;
     const edgeCount = edgeCountResult[0]?.count ?? 0;
 
-    // Get counts per label
     const labelCounts: Record<string, number> = {};
     const labels: NodeLabel[] = [
-      'Funder',
-      'Grant',
-      'Scholarship',
-      'Org',
-      'Person',
-      'Site',
-      'Project',
-      'Contribution',
-      'Activity',
-      'Output',
-      'FocusArea',
+      'Funder', 'Grant', 'Scholarship', 'Org', 'Person', 
+      'Site', 'Project', 'Contribution', 'Activity', 
+      'Output', 'FocusArea'
     ];
 
     for (const label of labels) {
