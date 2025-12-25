@@ -3,6 +3,8 @@
  *
  * Simple HTTP server for Railway deployment.
  * Exposes health check and basic graph operations.
+ *
+ * REFACTORED: Now correctly awaits Async Engine calls.
  */
 
 import 'dotenv/config';
@@ -38,7 +40,7 @@ async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+  const url = new URL(req.url || '/', \`http://localhost:\${PORT}\`);
 
   // Set JSON content type for all responses
   res.setHeader('Content-Type', 'application/json');
@@ -85,7 +87,7 @@ async function handleRequest(
       case '/nodes': {
         // Get node counts by type
         const conn = await getConnection();
-        const counts = await conn.query<{ label: string; count: number }>(`
+        const counts = await conn.query<{ label: string; count: number }>(\`
           CALL {
             MATCH (n:Funder) RETURN 'Funder' as label, count(n) as count
             UNION ALL
@@ -106,7 +108,7 @@ async function handleRequest(
             MATCH (n:FocusArea) RETURN 'FocusArea' as label, count(n) as count
           }
           RETURN label, count
-        `);
+        \`);
 
         const result: Record<string, number> = {};
         for (const row of counts) {
@@ -130,63 +132,63 @@ async function handleRequest(
         const seeded: string[] = [];
 
         // 1. Create Focus Areas
-        await conn.mutate(`MERGE (:FocusArea {id: 'fa-food', name: 'Food Security', description: 'Access to nutritious food'})`);
-        await conn.mutate(`MERGE (:FocusArea {id: 'fa-edu', name: 'Education', description: 'Educational opportunities'})`);
-        await conn.mutate(`MERGE (:FocusArea {id: 'fa-env', name: 'Environment', description: 'Environmental conservation'})`);
-        await conn.mutate(`MERGE (:FocusArea {id: 'fa-community', name: 'Community Development', description: 'Building strong communities'})`);
+        await conn.mutate(\`MERGE (:FocusArea {id: 'fa-food', name: 'Food Security', description: 'Access to nutritious food'})\`);
+        await conn.mutate(\`MERGE (:FocusArea {id: 'fa-edu', name: 'Education', description: 'Educational opportunities'})\`);
+        await conn.mutate(\`MERGE (:FocusArea {id: 'fa-env', name: 'Environment', description: 'Environmental conservation'})\`);
+        await conn.mutate(\`MERGE (:FocusArea {id: 'fa-community', name: 'Community Development', description: 'Building strong communities'})\`);
         seeded.push('4 FocusAreas');
 
         // 2. Create Funders
-        await conn.mutate(`MERGE (:Funder {id: 'funder-1', name: 'Hawaii Community Foundation', type: 'foundation', focusAreas: '["food security", "education", "environment"]', geoFocus: '["Hawaii"]', totalGiving: 50000000, source: '["manual"]'})`);
-        await conn.mutate(`MERGE (:Funder {id: 'funder-2', name: 'Atherton Family Foundation', type: 'foundation', focusAreas: '["education", "community development"]', geoFocus: '["Hawaii"]', totalGiving: 10000000, source: '["manual"]'})`);
+        await conn.mutate(\`MERGE (:Funder {id: 'funder-1', name: 'Hawaii Community Foundation', type: 'foundation', focusAreas: '["food security", "education", "environment"]', geoFocus: '["Hawaii"]', totalGiving: 50000000, source: '["manual"]'})\`);
+        await conn.mutate(\`MERGE (:Funder {id: 'funder-2', name: 'Atherton Family Foundation', type: 'foundation', focusAreas: '["education", "community development"]', geoFocus: '["Hawaii"]', totalGiving: 10000000, source: '["manual"]'})\`);
         seeded.push('2 Funders');
 
         // 3. Create Grants
         const deadline90 = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
         const deadline60 = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
         const now = new Date().toISOString();
-        await conn.mutate(`MERGE (:Grant {id: 'grant-1', title: 'Community Food Security Grant', amount: '{"min": 5000, "max": 25000}', deadline: '${deadline90}', eligibility: '["501c3", "Hawaii-based"]', focusAreas: '["food security"]', applicationUrl: 'https://example.com/apply', lastUpdated: '${now}'})`);
-        await conn.mutate(`MERGE (:Grant {id: 'grant-2', title: 'Environmental Education Initiative', amount: '{"min": 10000, "max": 50000}', deadline: '${deadline60}', eligibility: '["501c3", "education-focused"]', focusAreas: '["education", "environment"]', applicationUrl: 'https://example.com/apply2', lastUpdated: '${now}'})`);
+        await conn.mutate(\`MERGE (:Grant {id: 'grant-1', title: 'Community Food Security Grant', amount: '{"min": 5000, "max": 25000}', deadline: '\${deadline90}', eligibility: '["501c3", "Hawaii-based"]', focusAreas: '["food security"]', applicationUrl: 'https://example.com/apply', lastUpdated: '\${now}'})\`);
+        await conn.mutate(\`MERGE (:Grant {id: 'grant-2', title: 'Environmental Education Initiative', amount: '{"min": 10000, "max": 50000}', deadline: '\${deadline60}', eligibility: '["501c3", "education-focused"]', focusAreas: '["education", "environment"]', applicationUrl: 'https://example.com/apply2', lastUpdated: '\${now}'})\`);
         seeded.push('2 Grants');
 
         // 4. Create Organizations
-        await conn.mutate(`MERGE (:Org {id: 'org-1', name: 'Ohana Garden', ein: '99-1234567', mission: 'Community food security through shared gardens in Lower Puna', focusAreas: '["food security", "community development"]', geoFocus: '["Lower Puna", "Hawaii"]', verified: true})`);
-        await conn.mutate(`MERGE (:Org {id: 'org-2', name: 'Puna Learning Center', ein: '99-7654321', mission: 'Providing educational opportunities for rural Hawaii', focusAreas: '["education"]', geoFocus: '["Puna", "Hawaii"]', verified: true})`);
+        await conn.mutate(\`MERGE (:Org {id: 'org-1', name: 'Ohana Garden', ein: '99-1234567', mission: 'Community food security through shared gardens in Lower Puna', focusAreas: '["food security", "community development"]', geoFocus: '["Lower Puna", "Hawaii"]', verified: true})\`);
+        await conn.mutate(\`MERGE (:Org {id: 'org-2', name: 'Puna Learning Center', ein: '99-7654321', mission: 'Providing educational opportunities for rural Hawaii', focusAreas: '["education"]', geoFocus: '["Puna", "Hawaii"]', verified: true})\`);
         seeded.push('2 Orgs');
 
         // 5. Create Persons
-        await conn.mutate(`MERGE (:Person {id: 'person-1', name: 'Keoni Makoa', location: 'Pahoa, HI', interests: '["gardening", "food security", "community"]', affiliations: '["org-1"]'})`);
-        await conn.mutate(`MERGE (:Person {id: 'person-2', name: 'Leilani Kai', location: 'Kapoho, HI', interests: '["education", "environment"]', affiliations: '["org-2"]'})`);
-        await conn.mutate(`MERGE (:Person {id: 'person-3', name: 'Makani Nui', location: 'Pahoa, HI', interests: '["farming", "sustainability"]', affiliations: '["org-1", "org-2"]'})`);
+        await conn.mutate(\`MERGE (:Person {id: 'person-1', name: 'Keoni Makoa', location: 'Pahoa, HI', interests: '["gardening", "food security", "community"]', affiliations: '["org-1"]'})\`);
+        await conn.mutate(\`MERGE (:Person {id: 'person-2', name: 'Leilani Kai', location: 'Kapoho, HI', interests: '["education", "environment"]', affiliations: '["org-2"]'})\`);
+        await conn.mutate(\`MERGE (:Person {id: 'person-3', name: 'Makani Nui', location: 'Pahoa, HI', interests: '["farming", "sustainability"]', affiliations: '["org-1", "org-2"]'})\`);
         seeded.push('3 Persons');
 
         // 6. Create Sites
-        await conn.mutate(`MERGE (:Site {id: 'site-1', name: 'Ohana Garden Main Site', location: '{"lat": 19.4937, "lng": -154.8531}', nfcTagId: 'NFC-001', type: 'garden'})`);
-        await conn.mutate(`MERGE (:Site {id: 'site-2', name: 'Pahoa Distribution Center', location: '{"lat": 19.4963, "lng": -154.9453}', nfcTagId: 'NFC-002', type: 'distribution'})`);
+        await conn.mutate(\`MERGE (:Site {id: 'site-1', name: 'Ohana Garden Main Site', location: '{"lat": 19.4937, "lng": -154.8531}', nfcTagId: 'NFC-001', type: 'garden'})\`);
+        await conn.mutate(\`MERGE (:Site {id: 'site-2', name: 'Pahoa Distribution Center', location: '{"lat": 19.4963, "lng": -154.9453}', nfcTagId: 'NFC-002', type: 'distribution'})\`);
         seeded.push('2 Sites');
 
         // 7. Create Projects
-        await conn.mutate(`MERGE (:Project {id: 'project-1', name: 'Community Garden Initiative', description: 'Growing food for the community', focusAreas: '["food security"]'})`);
+        await conn.mutate(\`MERGE (:Project {id: 'project-1', name: 'Community Garden Initiative', description: 'Growing food for the community', focusAreas: '["food security"]'})\`);
         seeded.push('1 Project');
 
         // 8. Create Opportunities
         const deadline30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        await conn.mutate(`MERGE (:Opportunity {id: 'opp-1', title: 'Garden Volunteer - Weekly', description: 'Help maintain community garden beds, plant seedlings, and harvest produce', hoursNeeded: '{"min": 2, "max": 4}', schedule: 'weekly', siteId: 'site-1', skills: '["gardening", "physical labor"]', focusAreas: '["food security", "community development"]', spotsAvailable: 10, lastUpdated: '${now}'})`);
-        await conn.mutate(`MERGE (:Opportunity {id: 'opp-2', title: 'Food Distribution Helper', description: 'Assist with sorting and distributing fresh produce to community members', hoursNeeded: '{"min": 3, "max": 5}', schedule: 'weekly', siteId: 'site-2', skills: '["organization", "customer service"]', focusAreas: '["food security"]', spotsAvailable: 5, lastUpdated: '${now}'})`);
-        await conn.mutate(`MERGE (:Opportunity {id: 'opp-3', title: 'Environmental Education Workshop', description: 'One-time workshop teaching sustainable gardening practices', hoursNeeded: '{"min": 4, "max": 6}', schedule: 'one-time', skills: '["teaching", "environment"]', focusAreas: '["education", "environment"]', deadline: '${deadline30}', spotsAvailable: 20, lastUpdated: '${now}'})`);
+        await conn.mutate(\`MERGE (:Opportunity {id: 'opp-1', title: 'Garden Volunteer - Weekly', description: 'Help maintain community garden beds, plant seedlings, and harvest produce', hoursNeeded: '{"min": 2, "max": 4}', schedule: 'weekly', siteId: 'site-1', skills: '["gardening", "physical labor"]', focusAreas: '["food security", "community development"]', spotsAvailable: 10, lastUpdated: '\${now}'})\`);
+        await conn.mutate(\`MERGE (:Opportunity {id: 'opp-2', title: 'Food Distribution Helper', description: 'Assist with sorting and distributing fresh produce to community members', hoursNeeded: '{"min": 3, "max": 5}', schedule: 'weekly', siteId: 'site-2', skills: '["organization", "customer service"]', focusAreas: '["food security"]', spotsAvailable: 5, lastUpdated: '\${now}'})\`);
+        await conn.mutate(\`MERGE (:Opportunity {id: 'opp-3', title: 'Environmental Education Workshop', description: 'One-time workshop teaching sustainable gardening practices', hoursNeeded: '{"min": 4, "max": 6}', schedule: 'one-time', skills: '["teaching", "environment"]', focusAreas: '["education", "environment"]', deadline: '\${deadline30}', spotsAvailable: 20, lastUpdated: '\${now}'})\`);
         seeded.push('3 Opportunities');
 
         // 9. Create Relationships (using MERGE to avoid duplicates)
-        await conn.mutate(`MATCH (f:Funder {id: 'funder-1'}), (g:Grant {id: 'grant-1'}) MERGE (f)-[:OFFERS]->(g)`);
-        await conn.mutate(`MATCH (f:Funder {id: 'funder-2'}), (g:Grant {id: 'grant-2'}) MERGE (f)-[:OFFERS]->(g)`);
-        await conn.mutate(`MATCH (o:Org {id: 'org-1'}), (p:Project {id: 'project-1'}) MERGE (o)-[:RUNS]->(p)`);
-        await conn.mutate(`MATCH (p:Project {id: 'project-1'}), (s:Site {id: 'site-1'}) MERGE (p)-[:LOCATED_AT]->(s)`);
-        await conn.mutate(`MATCH (p:Person {id: 'person-1'}), (o:Org {id: 'org-1'}) MERGE (p)-[:MEMBER_OF {role: 'volunteer'}]->(o)`);
-        await conn.mutate(`MATCH (p:Person {id: 'person-2'}), (o:Org {id: 'org-2'}) MERGE (p)-[:MEMBER_OF {role: 'educator'}]->(o)`);
-        await conn.mutate(`MATCH (f:Funder {id: 'funder-1'}), (fa:FocusArea {id: 'fa-food'}) MERGE (f)-[:FOCUSES_ON]->(fa)`);
-        await conn.mutate(`MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-1'}) MERGE (o)-[:OFFERS]->(op)`);
-        await conn.mutate(`MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-2'}) MERGE (o)-[:OFFERS]->(op)`);
-        await conn.mutate(`MATCH (o:Org {id: 'org-2'}), (op:Opportunity {id: 'opp-3'}) MERGE (o)-[:OFFERS]->(op)`);
+        await conn.mutate(\`MATCH (f:Funder {id: 'funder-1'}), (g:Grant {id: 'grant-1'}) MERGE (f)-[:OFFERS]->(g)\`);
+        await conn.mutate(\`MATCH (f:Funder {id: 'funder-2'}), (g:Grant {id: 'grant-2'}) MERGE (f)-[:OFFERS]->(g)\`);
+        await conn.mutate(\`MATCH (o:Org {id: 'org-1'}), (p:Project {id: 'project-1'}) MERGE (o)-[:RUNS]->(p)\`);
+        await conn.mutate(\`MATCH (p:Project {id: 'project-1'}), (s:Site {id: 'site-1'}) MERGE (p)-[:LOCATED_AT]->(s)\`);
+        await conn.mutate(\`MATCH (p:Person {id: 'person-1'}), (o:Org {id: 'org-1'}) MERGE (p)-[:MEMBER_OF {role: 'volunteer'}]->(o)\`);
+        await conn.mutate(\`MATCH (p:Person {id: 'person-2'}), (o:Org {id: 'org-2'}) MERGE (p)-[:MEMBER_OF {role: 'educator'}]->(o)\`);
+        await conn.mutate(\`MATCH (f:Funder {id: 'funder-1'}), (fa:FocusArea {id: 'fa-food'}) MERGE (f)-[:FOCUSES_ON]->(fa)\`);
+        await conn.mutate(\`MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-1'}) MERGE (o)-[:OFFERS]->(op)\`);
+        await conn.mutate(\`MATCH (o:Org {id: 'org-1'}), (op:Opportunity {id: 'opp-2'}) MERGE (o)-[:OFFERS]->(op)\`);
+        await conn.mutate(\`MATCH (o:Org {id: 'org-2'}), (op:Opportunity {id: 'opp-3'}) MERGE (o)-[:OFFERS]->(op)\`);
         seeded.push('10 Relationships');
 
         res.writeHead(200);
@@ -203,20 +205,20 @@ async function handleRequest(
         const conn = await getConnection();
 
         // Create test node
-        const testId = `test-${Date.now()}`;
-        await conn.mutate(`
-          CREATE (t:TestNode {id: $id, timestamp: $ts})
-        `, { id: testId, ts: new Date().toISOString() });
+        const testId = \`test-\${Date.now()}\`;
+        await conn.mutate(\`
+          CREATE (t:TestNode {id: \$id, timestamp: \$ts})
+        \`, { id: testId, ts: new Date().toISOString() });
 
         // Query it back
-        const result = await conn.query<{ t: { id: string } }>(`
-          MATCH (t:TestNode {id: $id}) RETURN t
-        `, { id: testId });
+        const result = await conn.query<{ t: { id: string } }>(\`
+          MATCH (t:TestNode {id: \$id}) RETURN t
+        \`, { id: testId });
 
         // Delete it
-        await conn.mutate(`
-          MATCH (t:TestNode {id: $id}) DELETE t
-        `, { id: testId });
+        await conn.mutate(\`
+          MATCH (t:TestNode {id: \$id}) DELETE t
+        \`, { id: testId });
 
         res.writeHead(200);
         res.end(JSON.stringify({
@@ -229,7 +231,6 @@ async function handleRequest(
       }
 
       case '/ingest/990': {
-        // Trigger 990 ingestion
         if (req.method !== 'POST') {
           res.writeHead(405);
           res.end(JSON.stringify({ error: 'Use POST to trigger ingestion' }));
@@ -241,6 +242,7 @@ async function handleRequest(
           ? parseInt(url.searchParams.get('year')!, 10)
           : new Date().getFullYear() - 1;
 
+        // FIXED: Await the promise
         const job = await ingestion.ingest990Year(year);
 
         res.writeHead(200);
@@ -248,13 +250,12 @@ async function handleRequest(
           success: true,
           jobId: job.id,
           year,
-          message: `Started 990 ingestion for year ${year}. Check /ingest/status/${job.id} for progress.`,
+          message: \`Started 990 ingestion for year \${year}. Check /ingest/status/\${job.id} for progress.\`,
         }));
         break;
       }
 
       case '/ingest/grants': {
-        // Trigger Grants.gov ingestion
         if (req.method !== 'POST') {
           res.writeHead(405);
           res.end(JSON.stringify({ error: 'Use POST to trigger ingestion' }));
@@ -264,6 +265,7 @@ async function handleRequest(
         const ingestion = await getDataIngestion();
         const keyword = url.searchParams.get('keyword') || 'nonprofit';
 
+        // FIXED: Await the promise
         const job = await ingestion.ingestGrantsGov({ keyword });
 
         res.writeHead(200);
@@ -271,15 +273,15 @@ async function handleRequest(
           success: true,
           jobId: job.id,
           keyword,
-          message: `Started Grants.gov ingestion for "${keyword}". Check /ingest/status/${job.id} for progress.`,
+          message: \`Started Grants.gov ingestion for "\${keyword}". Check /ingest/status/\${job.id} for progress.\`,
         }));
         break;
       }
 
       case '/ingest/jobs': {
-        // List all ingestion jobs
         const ingestion = await getDataIngestion();
-        const jobs = ingestion.listJobs();
+        // FIXED: Await the promise
+        const jobs = await ingestion.listJobs();
 
         res.writeHead(200);
         res.end(JSON.stringify({
@@ -298,11 +300,11 @@ async function handleRequest(
       }
 
       default: {
-        // Check for dynamic routes
         if (url.pathname.startsWith('/ingest/status/')) {
           const jobId = url.pathname.replace('/ingest/status/', '');
           const ingestion = await getDataIngestion();
-          const job = ingestion.getJobStatus(jobId);
+          // FIXED: Await the promise
+          const job = await ingestion.getJobStatus(jobId);
 
           if (!job) {
             res.writeHead(404);
@@ -319,7 +321,7 @@ async function handleRequest(
             recordsFailed: job.recordsFailed,
             startedAt: job.startedAt,
             completedAt: job.completedAt,
-            errors: job.errors.slice(0, 10), // Show first 10 errors
+            errors: job.errors.slice(0, 10),
             totalErrors: job.errors.length,
           }));
           break;
@@ -347,20 +349,12 @@ async function handleRequest(
 const server = http.createServer(handleRequest);
 
 server.listen(PORT, () => {
-  console.log(`🚀 Almoner server running on port ${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/health`);
-  console.log(`   Stats:  http://localhost:${PORT}/stats`);
-  console.log(`   Nodes:  http://localhost:${PORT}/nodes`);
-  console.log(`   Seed:   POST http://localhost:${PORT}/seed`);
-  console.log(`   Test:   http://localhost:${PORT}/test`);
-
-  // Connect to FalkorDB on startup
+  console.log(\`🚀 Almoner server running on port \${PORT}\`);
   getConnection()
     .then(() => console.log('✓ Connected to FalkorDB'))
     .catch((err) => console.error('✗ FalkorDB connection error:', err.message));
 });
 
-// Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
   if (connection) {
