@@ -1,75 +1,54 @@
-/**
- * Test script to verify FalkorDB connection
- *
- * Usage: npx ts-node scripts/test-connection.ts
- */
-
-import 'dotenv/config';
-import { GraphConnection, configFromEnv } from '../src/modules/graph-core/connection';
+import { GraphConnection } from '../src/modules/graph-core/connection';
+import { NodeCrud } from '../src/modules/graph-core/crud';
 
 async function main() {
-  console.log('Testing FalkorDB connection...\n');
+  console.log("🧪 STARTING INTEGRATION TEST...");
 
-  const config = configFromEnv();
-  console.log('Config:', {
-    url: config.url ? config.url.replace(/\/\/.*@/, '//<redacted>@') : undefined,
-    host: config.host,
-    port: config.port,
-    graphName: config.graphName,
-  });
-
-  const connection = GraphConnection.getInstance(config);
-
+  const conn = new GraphConnection();
+  
   try {
-    // Connect
-    console.log('\n1. Connecting to FalkorDB...');
-    await connection.connect();
-    console.log('   ✓ Connected successfully');
+    await conn.connect();
+    
+    const crud = new NodeCrud(conn);
+    const testId = `TestNode_${Date.now()}`;
+    const properties = {
+      id: testId,
+      name: "Integration Test Node",
+      tags: ["array_fix", "verified", "falkordb"],
+      metadata: { "status": "active" } 
+    };
 
-    // Create a test node
-    console.log('\n2. Creating test node...');
-    const createResult = await connection.mutate(`
-      CREATE (t:TestNode {
-        id: $id,
-        message: $message,
-        createdAt: $createdAt
-      })
-      RETURN t
-    `, {
-      id: 'test-' + Date.now(),
-      message: 'Hello from Almoner!',
-      createdAt: new Date().toISOString(),
-    });
-    console.log('   ✓ Node created:', createResult);
+    console.log(`📝 Creating node: ${testId}...`);
+    await crud.createNode("TestLabel", properties);
 
-    // Query the node back
-    console.log('\n3. Querying test nodes...');
-    const queryResult = await connection.query<{ t: { id: string; message: string } }>(`
-      MATCH (t:TestNode)
-      RETURN t
-      ORDER BY t.createdAt DESC
-      LIMIT 5
-    `);
-    console.log('   ✓ Found', queryResult.length, 'test node(s)');
-    for (const row of queryResult) {
-      console.log('     -', row.t);
+    console.log("📖 Reading node back...");
+    const node = await crud.getNode(testId);
+
+    // FIX: Explicit Null Check required for TypeScript
+    if (!node) {
+      console.error("❌ FAILURE: Node not found (returned null).");
+      process.exit(1);
     }
 
-    // Clean up test nodes
-    console.log('\n4. Cleaning up test nodes...');
-    const deleteResult = await connection.mutate(`
-      MATCH (t:TestNode)
-      DELETE t
-    `);
-    console.log('   ✓ Deleted', deleteResult.nodesDeleted, 'test node(s)');
+    console.log("---------------------------------------------------");
+    console.log("RESULTS:");
+    console.log("ID:", node.id);
+    console.log("Tags:", node.tags);
+    console.log("Type of Tags:", Array.isArray(node.tags) ? "✅ Array" : "❌ Not Array");
+    console.log("---------------------------------------------------");
 
-    console.log('\n✅ All tests passed! FalkorDB connection is working.\n');
+    if (Array.isArray(node.tags) && node.tags.includes("verified")) {
+      console.log("🎉 SUCCESS: Arrays are storing correctly!");
+    } else {
+      console.error("❌ FAILURE: Data mismatch.");
+      process.exit(1);
+    }
 
-  } catch (error) {
-    console.error('\n❌ Error:', error);
+  } catch (err) {
+    console.error("❌ CRITICAL ERROR:", err);
     process.exit(1);
   } finally {
-    await connection.disconnect();
+    await conn.close();
   }
 }
 

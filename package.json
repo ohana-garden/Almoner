@@ -13,7 +13,9 @@
     "seed:phase1": "ts-node scripts/seed-phase1.ts",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit",
-    "deploy:railway": "ts-node scripts/deploy-railway.ts"
+    "deploy:railway": "ts-node scripts/deploy-railway.ts",
+    "schema:init": "ts-node scripts/init-schema.ts",
+    "migrate:arrays": "ts-node scripts/migrate-array-props.ts"
   },
   "keywords": [
     "grants",

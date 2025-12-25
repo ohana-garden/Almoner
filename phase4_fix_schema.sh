@@ -1,3 +1,14 @@
+#!/bin/bash
+set -e
+
+echo "🏗️  PHASE 4: IMPLEMENTING IDEMPOTENT SCHEMA..."
+
+# ---------------------------------------------------------
+# 1. Create Schema Manager
+# ---------------------------------------------------------
+echo "📝 Creating src/modules/graph-core/schema.ts..."
+
+cat << 'TS_SCHEMA' > src/modules/graph-core/schema.ts
 import { GraphConnection } from './connection';
 
 /**
@@ -116,3 +127,33 @@ export class SchemaManager {
     }
   }
 }
+TS_SCHEMA
+
+# ---------------------------------------------------------
+# 2. Create Schema Test Runner
+# ---------------------------------------------------------
+echo "📝 Creating scripts/init-schema.ts..."
+
+cat << 'TS_RUNNER' > scripts/init-schema.ts
+import { GraphConnection } from '../src/modules/graph-core/connection';
+import { SchemaManager } from '../src/modules/graph-core/schema';
+
+async function main() {
+  const conn = new GraphConnection();
+  try {
+    await conn.connect();
+    const schema = new SchemaManager(conn);
+    await schema.ensureSchema();
+    console.log("�� Schema Initialization Successful");
+  } catch (e) {
+    console.error("❌ Schema Init Failed:", e);
+    process.exit(1);
+  } finally {
+    await conn.close();
+  }
+}
+
+main();
+TS_RUNNER
+
+echo "✅ Phase 4 Complete: Schema Manager ready."

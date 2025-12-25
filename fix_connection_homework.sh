@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+
+echo "🛠️  Applying Definitive Connection Fix..."
+
+cat << 'TS_FIX' > src/modules/graph-core/connection.ts
 import { FalkorDB } from 'falkordb';
 
 export class GraphConnection {
@@ -105,3 +111,17 @@ export class GraphConnection {
     }
   }
 }
+TS_FIX
+
+# ---------------------------------------------------------
+# Verify Compilation
+# ---------------------------------------------------------
+echo "🔍 Verifying compilation..."
+npx tsc src/modules/graph-core/crud.ts src/modules/graph-core/connection.ts --noEmit --esModuleInterop --skipLibCheck --target es2020 --moduleResolution node
+
+if [ $? -eq 0 ]; then
+  echo "✅ PASS: Connection class compiled successfully."
+else
+  echo "❌ FAIL: Compilation failed."
+  exit 1
+fi
