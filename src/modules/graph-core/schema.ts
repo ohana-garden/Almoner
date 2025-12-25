@@ -30,7 +30,7 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Output', property: 'id', type: 'exact' },
   { label: 'FocusArea', property: 'id', type: 'exact' },
   
-  // Operational nodes (New!)
+  // Operational nodes
   { label: 'IngestionJob', property: 'id', type: 'exact' },
 
   // Search indexes
@@ -45,8 +45,10 @@ export const REQUIRED_INDEXES: IndexDefinition[] = [
   { label: 'Project', property: 'name', type: 'fulltext' },
   { label: 'FocusArea', property: 'name', type: 'fulltext' },
 
-  // Temporal indexes
+  // Temporal & Filtering indexes (Critical for Matching Engine)
   { label: 'Grant', property: 'deadline', type: 'exact' },
+  { label: 'Grant', property: 'amountMin', type: 'exact' },
+  { label: 'Grant', property: 'amountMax', type: 'exact' },
   { label: 'Scholarship', property: 'deadline', type: 'exact' },
   { label: 'Contribution', property: 'timestamp', type: 'exact' },
   { label: 'Contribution', property: 'synced', type: 'exact' },
@@ -67,11 +69,10 @@ export class SchemaManager {
 
   async createIndex(index: IndexDefinition): Promise<void> {
     const { label, property, type } = index;
-    // FalkorDB uses CREATE INDEX syntax
     const cypher =
       type === 'exact'
-        ? `CREATE INDEX FOR (n:${label}) ON (n.${property})`
-        : `CREATE INDEX FOR (n:${label}) ON (n.${property})`;
+        ? \`CREATE INDEX FOR (n:\${label}) ON (n.\${property})\`
+        : \`CREATE INDEX FOR (n:\${label}) ON (n.\${property})\`;
 
     try {
       await this.connection.mutate(cypher);
@@ -102,35 +103,9 @@ export class SchemaManager {
     await this.connection.mutate('MATCH (n) DETACH DELETE n');
   }
 
-  async getStats(): Promise<{
-    nodeCount: number;
-    edgeCount: number;
-    labelCounts: Record<string, number>;
-  }> {
-    const nodeCountResult = await this.connection.query<{ count: number }>(
-      'MATCH (n) RETURN count(n) as count'
-    );
-    const edgeCountResult = await this.connection.query<{ count: number }>(
-      'MATCH ()-[r]->() RETURN count(r) as count'
-    );
-
-    const nodeCount = nodeCountResult[0]?.count ?? 0;
-    const edgeCount = edgeCountResult[0]?.count ?? 0;
-
-    const labelCounts: Record<string, number> = {};
-    const labels: NodeLabel[] = [
-      'Funder', 'Grant', 'Scholarship', 'Org', 'Person', 
-      'Site', 'Project', 'Contribution', 'Activity', 
-      'Output', 'FocusArea'
-    ];
-
-    for (const label of labels) {
-      const result = await this.connection.query<{ count: number }>(
-        `MATCH (n:${label}) RETURN count(n) as count`
-      );
-      labelCounts[label] = result[0]?.count ?? 0;
-    }
-
-    return { nodeCount, edgeCount, labelCounts };
+  async getStats(): Promise<any> {
+    const nodeCount = await this.connection.query<{ count: number }>('MATCH (n) RETURN count(n) as count');
+    const edgeCount = await this.connection.query<{ count: number }>('MATCH ()-[r]->() RETURN count(r) as count');
+    return { nodeCount: nodeCount[0]?.count ?? 0, edgeCount: edgeCount[0]?.count ?? 0 };
   }
 }

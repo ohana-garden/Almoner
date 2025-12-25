@@ -1,9 +1,6 @@
 /**
- * Data Ingestion Module - REFACTORED
- * Purpose: Pull from grant sources, 990s, etc., feed to Entity Resolution
- * * Major Change: IngestionJob state is now persisted to FalkorDB.
- * This ensures job history survives service restarts.
- * * First Principle: Graph is source of truth.
+ * Data Ingestion Module - FINAL REFACTOR
+ * Includes: DB Persistence (Part 2) + Zod Validation (Part 5)
  */
 
 import type { GraphConnection } from '../graph-core';
@@ -11,6 +8,7 @@ import type { EntityResolutionEngine } from '../entity-resolution';
 import type { Funder, Grant } from '../../types/nodes';
 import { parse990ExtractCsv, download990Extract } from './irs990-parser';
 import { GrantsGovClient } from './grants-gov-client';
+import { Raw990RecordSchema, RawGrantRecordSchema } from './validators';
 
 export { parse990ExtractCsv, download990Extract, getAvailable990Years } from './irs990-parser';
 export { GrantsGovClient, ELIGIBILITY_CODES, FUNDING_CATEGORIES } from './grants-gov-client';
@@ -66,7 +64,6 @@ export class DataIngestionEngine {
 
   async ingest990Data(filePath: string): Promise<IngestionJob> {
     const job = await this.createJob('irs_990');
-    // Process asynchronously but safely
     this.process990File(job, filePath).catch((error) => {
       this.failJob(job.id, error.message);
     });
@@ -75,7 +72,6 @@ export class DataIngestionEngine {
 
   async ingest990Year(year: number, tempDir = '/tmp/almoner'): Promise<IngestionJob> {
     const job = await this.createJob('irs_990');
-    
     (async () => {
       try {
         await this.updateJobStatus(job.id, 'running');
@@ -87,7 +83,6 @@ export class DataIngestionEngine {
         await this.failJob(job.id, error instanceof Error ? error.message : String(error));
       }
     })();
-
     return job;
   }
 
@@ -97,31 +92,21 @@ export class DataIngestionEngine {
     eligibility?: string;
   }): Promise<IngestionJob> {
     const job = await this.createJob('grants_gov');
-
     this.processGrantsGov(job, options).catch((error) => {
       this.failJob(job.id, error.message);
     });
-
     return job;
   }
 
   async getJobStatus(jobId: string): Promise<IngestionJob | undefined> {
-    const cypher = \`
-      MATCH (j:IngestionJob {id: \$jobId})
-      RETURN j
-    \`;
+    const cypher = \`MATCH (j:IngestionJob {id: \$jobId}) RETURN j\`;
     const results = await this.connection.query<{ j: any }>(cypher, { jobId });
     if (results.length === 0) return undefined;
     return this.deserializeJob(results[0].j);
   }
 
   async listJobs(): Promise<IngestionJob[]> {
-    const cypher = \`
-      MATCH (j:IngestionJob)
-      RETURN j
-      ORDER BY j.startedAt DESC
-      LIMIT 50
-    \`;
+    const cypher = \`MATCH (j:IngestionJob) RETURN j ORDER BY j.startedAt DESC LIMIT 50\`;
     const results = await this.connection.query<{ j: any }>(cypher);
     return results.map(r => this.deserializeJob(r.j));
   }
@@ -138,13 +123,14 @@ export class DataIngestionEngine {
 
     for (const record of records) {
       try {
-        await this.processOne990Record(record);
+        // ZOD VALIDATION
+        const validated = Raw990RecordSchema.parse(record);
+        await this.processOne990Record(validated);
         processed++;
       } catch (error) {
         failed++;
         const msg = \`EIN \${record.ein}: \${error instanceof Error ? error.message : String(error)}\`;
-        errors.push(msg);
-        if (errors.length > 50) errors.pop(); // Keep error log bounded
+        if (errors.length < 50) errors.push(msg);
       }
     }
 
@@ -152,30 +138,27 @@ export class DataIngestionEngine {
   }
 
   private async process990FileStreaming(job: IngestionJob, filePath: string): Promise<void> {
-    // Note: status is already set to running by caller
     let processed = 0;
     let failed = 0;
     const errors: string[] = [];
 
-    const result = await parse990ExtractCsv(
+    await parse990ExtractCsv(
       filePath,
       async (record) => {
         try {
-          await this.processOne990Record(record);
+          // ZOD VALIDATION
+          const validated = Raw990RecordSchema.parse(record);
+          await this.processOne990Record(validated);
           processed++;
         } catch (error) {
           failed++;
-          const msg = \`EIN \${record.ein}: \${error instanceof Error ? error.message : String(error)}\`;
-          if (errors.length < 50) errors.push(msg); 
+          // Simplified error log
+          if (errors.length < 50) errors.push(\`EIN \${record.ein}: Validation/Process Error\`);
         }
       },
       {
         onProgress: (count) => {
-          if (count % 500 === 0) {
-             // Periodically update progress in DB (optional but good for long jobs)
-             // For now we just log to console to avoid DB spam
-             console.log(\`Job \${job.id}: Processed \${count} records...\`);
-          }
+          if (count % 1000 === 0) console.log(\`Job \${job.id}: \${count} records...\`);
         },
       }
     );
@@ -196,19 +179,20 @@ export class DataIngestionEngine {
 
     for (const grant of grants) {
       try {
-        await this.processOneGrantRecord(grant);
+        // ZOD VALIDATION
+        const validated = RawGrantRecordSchema.parse(grant);
+        await this.processOneGrantRecord(validated);
         processed++;
       } catch (error) {
         failed++;
-        const msg = \`Grant \${grant.opportunityId}: \${error instanceof Error ? error.message : String(error)}\`;
-        if (errors.length < 50) errors.push(msg);
+        if (errors.length < 50) errors.push(\`Grant \${grant.opportunityId}: \${error}\`);
       }
     }
 
     await this.completeJob(job.id, processed, failed, errors);
   }
 
-  // --- Entity Processing Logic (Same as before) ---
+  // --- Entity Processing Logic ---
 
   private async processOne990Record(record: Raw990Record): Promise<void> {
     const isFunder = record.totalGiving && record.totalGiving > 0;
@@ -234,9 +218,6 @@ export class DataIngestionEngine {
   }
 
   private async processOneGrantRecord(record: RawGrantRecord): Promise<void> {
-    if (!record.opportunityId || record.opportunityId === 'unknown') throw new Error('Missing opportunity ID');
-    if (!record.opportunityTitle || record.opportunityTitle === 'Untitled') throw new Error('Missing opportunity title');
-
     const agencyName = record.agencyName || 'Unknown Agency';
     const funderResult = await this.entityResolution.resolveFunder({
       name: agencyName,
@@ -296,7 +277,6 @@ export class DataIngestionEngine {
       errors: [],
     };
 
-    // Persist to DB
     await this.connection.mutate(
       \`CREATE (:IngestionJob {
         id: \$id,
@@ -314,7 +294,6 @@ export class DataIngestionEngine {
         startedAt: job.startedAt.toISOString()
       }
     );
-
     return job;
   }
 
@@ -364,8 +343,6 @@ export class DataIngestionEngine {
       errors: typeof nodeProps.errors === 'string' ? JSON.parse(nodeProps.errors) : [],
     };
   }
-
-  // --- Source Helpers ---
 
   private async read990File(filePath: string): Promise<Raw990Record[]> {
     const records: Raw990Record[] = [];
