@@ -108,8 +108,17 @@ export class GrantsGovClient {
       throw new Error(`Grants.gov API error: ${response.status} ${response.statusText} - ${errorBody}`);
     }
 
-    const data = (await response.json()) as GrantsGovResponse;
-    return this.transformResults(data.data || []);
+    const data = await response.json();
+    console.log('Grants.gov API response keys:', Object.keys(data));
+    console.log('Grants.gov API response sample:', JSON.stringify(data).slice(0, 500));
+
+    // Handle different response formats
+    const opportunities = data.data || data.opportunities || data.oppHits || data;
+    if (!Array.isArray(opportunities)) {
+      console.log('Response is not an array, type:', typeof opportunities);
+      return [];
+    }
+    return this.transformResults(opportunities);
   }
 
   /**
@@ -167,10 +176,18 @@ export class GrantsGovClient {
         throw new Error(`Grants.gov API error: ${response.status} ${response.statusText} - ${errorBody}`);
       }
 
-      const data = (await response.json()) as GrantsGovResponse;
-      totalHits = data.pagination_info?.total_records || 0;
+      const data = await response.json();
+      console.log('fetchAll response keys:', Object.keys(data));
+      totalHits = data.pagination_info?.total_records || data.totalCount || data.hitCount || 0;
 
-      const records = this.transformResults(data.data || []);
+      // Handle different response formats
+      const opportunities = data.data || data.opportunities || data.oppHits || [];
+      if (!Array.isArray(opportunities)) {
+        console.log('fetchAll: not an array, type:', typeof opportunities);
+        break;
+      }
+
+      const records = this.transformResults(opportunities);
       allRecords.push(...records);
 
       startIndex += pageSize;
@@ -183,7 +200,7 @@ export class GrantsGovClient {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Stop if we got no results
-      if (!data.data || data.data.length === 0) {
+      if (opportunities.length === 0) {
         break;
       }
     }
@@ -245,23 +262,27 @@ export class GrantsGovClient {
 
   /**
    * Transform API results to RawGrantRecord format.
+   * Handles both snake_case and camelCase field names.
    */
   private transformResults(
-    results: GrantsGovResponse['data']
+    results: unknown[]
   ): RawGrantRecord[] {
-    if (!results) return [];
+    if (!results || !Array.isArray(results)) return [];
 
-    return results.map((opp) => ({
-      opportunityId: opp.opportunity_id,
-      opportunityTitle: opp.opportunity_title,
-      agencyName: opp.agency_name || opp.agency_code,
-      awardCeiling: opp.award_ceiling || 0,
-      awardFloor: opp.award_floor || 0,
-      closeDate: opp.close_date,
-      eligibleApplicants: opp.applicant_types || [],
-      categoryOfFunding: opp.funding_category || 'Other',
-      applicationUrl: `https://www.grants.gov/search-results-detail/${opp.opportunity_id}`,
-    }));
+    return results.map((item) => {
+      const opp = item as Record<string, unknown>;
+      return {
+      opportunityId: String(opp.opportunity_id || opp.opportunityId || opp.id || ''),
+      opportunityTitle: String(opp.opportunity_title || opp.opportunityTitle || opp.title || ''),
+      agencyName: String(opp.agency_name || opp.agencyName || opp.agency || opp.agency_code || opp.agencyCode || ''),
+      awardCeiling: Number(opp.award_ceiling || opp.awardCeiling || 0),
+      awardFloor: Number(opp.award_floor || opp.awardFloor || 0),
+      closeDate: String(opp.close_date || opp.closeDate || ''),
+      eligibleApplicants: (opp.applicant_types || opp.eligibleApplicants || opp.eligibilities || []) as string[],
+      categoryOfFunding: String(opp.funding_category || opp.fundingCategory || opp.category || 'Other'),
+      applicationUrl: `https://www.grants.gov/search-results-detail/${opp.opportunity_id || opp.opportunityId || opp.id}`,
+      };
+    });
   }
 }
 
