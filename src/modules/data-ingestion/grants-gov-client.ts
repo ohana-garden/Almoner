@@ -35,22 +35,28 @@ export interface GrantsGovSearchOptions {
  * Response from new Grants.gov search2 API.
  */
 interface GrantsGovResponse {
-  totalCount: number;
-  opportunities: Array<{
-    opportunityId: string;
-    opportunityNumber: string;
-    title: string;
-    agencyCode: string;
-    agency: string;
-    openDate: string;
-    closeDate: string;
-    oppStatus: string;
-    awardCeiling: number;
-    awardFloor: number;
-    fundingInstruments?: string[];
-    categories?: string[];
-    eligibilities?: string[];
+  message: string;
+  data: Array<{
+    opportunity_id: string;
+    opportunity_number: string;
+    opportunity_title: string;
+    agency_code: string;
+    agency_name: string;
+    post_date: string;
+    close_date: string;
+    opportunity_status: string;
+    award_ceiling: number;
+    award_floor: number;
+    funding_instrument?: string;
+    funding_category?: string;
+    applicant_types?: string[];
   }>;
+  pagination_info: {
+    page_offset: number;
+    page_size: number;
+    total_pages: number;
+    total_records: number;
+  };
 }
 
 /**
@@ -103,7 +109,7 @@ export class GrantsGovClient {
     }
 
     const data = (await response.json()) as GrantsGovResponse;
-    return this.transformResults(data.opportunities || []);
+    return this.transformResults(data.data || []);
   }
 
   /**
@@ -162,9 +168,9 @@ export class GrantsGovClient {
       }
 
       const data = (await response.json()) as GrantsGovResponse;
-      totalHits = data.totalCount || 0;
+      totalHits = data.pagination_info?.total_records || 0;
 
-      const records = this.transformResults(data.opportunities || []);
+      const records = this.transformResults(data.data || []);
       allRecords.push(...records);
 
       startIndex += pageSize;
@@ -177,7 +183,7 @@ export class GrantsGovClient {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Stop if we got no results
-      if (!data.opportunities || data.opportunities.length === 0) {
+      if (!data.data || data.data.length === 0) {
         break;
       }
     }
@@ -192,36 +198,40 @@ export class GrantsGovClient {
     const body: Record<string, unknown> = {};
 
     if (options.keyword) {
-      body.keyword = options.keyword;
+      body.query = options.keyword;
     }
 
     if (options.agency) {
-      body.agencies = options.agency;
+      body.agency = options.agency;
     }
 
     if (options.eligibility) {
-      body.eligibilities = options.eligibility;
+      body.applicant_type = options.eligibility;
     }
 
     if (options.fundingInstrument) {
-      body.fundingInstruments = options.fundingInstrument;
+      body.funding_instrument = options.fundingInstrument;
     }
 
     if (options.category) {
-      body.fundingCategories = options.category;
+      body.funding_category = options.category;
     }
 
     if (options.oppStatus) {
-      body.oppStatuses = options.oppStatus;
+      body.opportunity_status = options.oppStatus;
     }
 
     if (options.dateRange) {
-      body.postedFrom = this.formatDate(options.dateRange.startDate);
-      body.postedTo = this.formatDate(options.dateRange.endDate);
+      body.post_date = {
+        start_date: this.formatDate(options.dateRange.startDate),
+        end_date: this.formatDate(options.dateRange.endDate),
+      };
     }
 
-    body.rows = options.rows || 25;
-    body.startRecordNum = options.startIndex || 0;
+    body.pagination = {
+      page_size: options.rows || 25,
+      page_offset: options.startIndex || 1,
+    };
 
     return body;
   }
@@ -237,20 +247,20 @@ export class GrantsGovClient {
    * Transform API results to RawGrantRecord format.
    */
   private transformResults(
-    results: GrantsGovResponse['opportunities']
+    results: GrantsGovResponse['data']
   ): RawGrantRecord[] {
     if (!results) return [];
 
     return results.map((opp) => ({
-      opportunityId: opp.opportunityId,
-      opportunityTitle: opp.title,
-      agencyName: opp.agency || opp.agencyCode,
-      awardCeiling: opp.awardCeiling || 0,
-      awardFloor: opp.awardFloor || 0,
-      closeDate: opp.closeDate,
-      eligibleApplicants: opp.eligibilities || [],
-      categoryOfFunding: opp.categories?.[0] || 'Other',
-      applicationUrl: `https://www.grants.gov/search-results-detail/${opp.opportunityId}`,
+      opportunityId: opp.opportunity_id,
+      opportunityTitle: opp.opportunity_title,
+      agencyName: opp.agency_name || opp.agency_code,
+      awardCeiling: opp.award_ceiling || 0,
+      awardFloor: opp.award_floor || 0,
+      closeDate: opp.close_date,
+      eligibleApplicants: opp.applicant_types || [],
+      categoryOfFunding: opp.funding_category || 'Other',
+      applicationUrl: `https://www.grants.gov/search-results-detail/${opp.opportunity_id}`,
     }));
   }
 }
