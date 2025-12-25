@@ -110,14 +110,32 @@ export class GrantsGovClient {
 
     const data = await response.json();
     console.log('Grants.gov API response keys:', Object.keys(data));
-    console.log('Grants.gov API response sample:', JSON.stringify(data).slice(0, 500));
+    console.log('Grants.gov API response sample:', JSON.stringify(data).slice(0, 1000));
 
-    // Handle different response formats
-    const opportunities = data.data || data.opportunities || data.oppHits || data;
+    // Navigate the nested response structure
+    // API returns: { errorcode, msg, token, data: { ... } }
+    let opportunities: unknown[] = [];
+
+    if (data.data && typeof data.data === 'object') {
+      console.log('data.data keys:', Object.keys(data.data));
+      // Try common nested paths
+      opportunities = data.data.oppHits || data.data.opportunities ||
+                      data.data.results || data.data.items ||
+                      (Array.isArray(data.data) ? data.data : []);
+    } else if (Array.isArray(data.data)) {
+      opportunities = data.data;
+    } else if (data.oppHits) {
+      opportunities = data.oppHits;
+    } else if (data.opportunities) {
+      opportunities = data.opportunities;
+    }
+
     if (!Array.isArray(opportunities)) {
-      console.log('Response is not an array, type:', typeof opportunities);
+      console.log('Could not find opportunities array. Full response:', JSON.stringify(data).slice(0, 2000));
       return [];
     }
+
+    console.log(`Found ${opportunities.length} opportunities`);
     return this.transformResults(opportunities);
   }
 
@@ -178,14 +196,37 @@ export class GrantsGovClient {
 
       const data = await response.json();
       console.log('fetchAll response keys:', Object.keys(data));
-      totalHits = data.pagination_info?.total_records || data.totalCount || data.hitCount || 0;
 
-      // Handle different response formats
-      const opportunities = data.data || data.opportunities || data.oppHits || [];
+      // Navigate the nested response structure
+      let opportunities: unknown[] = [];
+
+      if (data.data && typeof data.data === 'object' && !Array.isArray(data.data)) {
+        console.log('fetchAll data.data keys:', Object.keys(data.data));
+        // Try common nested paths
+        opportunities = data.data.oppHits || data.data.opportunities ||
+                        data.data.results || data.data.items || [];
+        // Get total from nested pagination
+        totalHits = data.data.pagination_info?.total_records ||
+                    data.data.totalCount || data.data.hitCount ||
+                    data.pagination_info?.total_records ||
+                    data.totalCount || data.hitCount || 0;
+      } else if (Array.isArray(data.data)) {
+        opportunities = data.data;
+        totalHits = data.pagination_info?.total_records || data.totalCount || data.hitCount || 0;
+      } else if (data.oppHits) {
+        opportunities = data.oppHits;
+        totalHits = data.hitCount || 0;
+      } else if (data.opportunities) {
+        opportunities = data.opportunities;
+        totalHits = data.totalCount || 0;
+      }
+
       if (!Array.isArray(opportunities)) {
-        console.log('fetchAll: not an array, type:', typeof opportunities);
+        console.log('fetchAll: Could not find array. Full response:', JSON.stringify(data).slice(0, 2000));
         break;
       }
+
+      console.log(`fetchAll: Found ${opportunities.length} opportunities, total: ${totalHits}`);
 
       const records = this.transformResults(opportunities);
       allRecords.push(...records);
