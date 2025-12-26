@@ -4,7 +4,7 @@ dotenv.config();
 export const config = {
   port: process.env.PORT || 3000,
   falkorDB: {
-    url: process.env.FALKORDB_URL, // Optional
+    url: process.env.FALKORDB_URL,
     host: process.env.FALKORDB_HOST || 'localhost',
     port: parseInt(process.env.FALKORDB_PORT || '6379', 10),
     password: process.env.FALKORDB_PASSWORD,

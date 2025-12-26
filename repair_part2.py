@@ -1,3 +1,38 @@
+import os
+
+def write_file(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(content.strip())
+    print(f"✅ Fixed: {path}")
+
+# ==============================================================================
+# 1. CONFIG
+# ==============================================================================
+write_file("src/config/index.ts", r"""
+import dotenv from 'dotenv';
+dotenv.config();
+
+export const config = {
+  port: process.env.PORT || 3000,
+  falkorDB: {
+    url: process.env.FALKORDB_URL,
+    host: process.env.FALKORDB_HOST || 'localhost',
+    port: parseInt(process.env.FALKORDB_PORT || '6379', 10),
+    password: process.env.FALKORDB_PASSWORD,
+    graphName: process.env.FALKORDB_GRAPH || 'AlmonerGraph',
+  },
+  graphiti: {
+    url: process.env.GRAPHITI_URL || 'http://localhost:8000',
+    apiKey: process.env.GRAPHITI_API_KEY
+  }
+};
+""")
+
+# ==============================================================================
+# 2. SCHEMA MANAGER
+# ==============================================================================
+write_file("src/modules/graph-core/schema.ts", r"""
 import { GraphConnection } from './connection';
 
 const DESIRED_INDEXES = [
@@ -74,3 +109,6 @@ export class SchemaManager {
     }
   }
 }
+""")
+
+print("🎉 ALL FILES RESTORED.")

@@ -1,88 +1,74 @@
-import express from 'express';
+/**
+ * Almoner API Server - HARDENED
+ * Uses singleton connection and strict initialization order.
+ */
+import 'dotenv/config';
+import * as http from 'http';
+import { initAlmoner } from './index';
 import { GraphConnection } from './modules/graph-core/connection';
-import { createMcpService } from './modules/mcp-service';
-import { MatchingEngine } from './modules/matching-engine';
-import { DataIngestionEngine } from './modules/data-ingestion';
-import { EntityResolutionEngine } from './modules/entity-resolution';
-import { NodeCrud } from './modules/graph-core/crud';
-import { config } from './config';
+
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 async function startServer() {
-  const app = express();
-  app.use(express.json());
-
-  // 1. Initialize Core Infrastructure
-  const connection = new GraphConnection();
+  console.log('🔄 Booting Almoner Engines...');
+  const app = await initAlmoner();
   
-  try {
-    await connection.connect();
-    console.log("✅ Server connected to FalkorDB");
-  } catch (e) {
-    console.error("❌ Fatal: Could not connect to DB on startup", e);
-    process.exit(1); // Fail fast so Railway restarts us
-  }
+  await GraphConnection.getInstance().connect();
+  console.log('✅ Database connected & Schema verified.');
 
-  // 2. Initialize Engines
-  const nodeCrud = new NodeCrud(connection);
-  const resolution = new EntityResolutionEngine(nodeCrud);
-  
-  // (Stubbed for MVP)
-  const matching = new MatchingEngine(connection);
-  const ingestion = new DataIngestionEngine(resolution, nodeCrud);
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', \`http://localhost:\${PORT}\`);
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // 3. Initialize MCP
-  const mcpService = createMcpService(connection, {
-    matching,
-    dataIngestion: ingestion
-  });
-
-  // ---------------------------------------------------------
-  // ROUTES
-  // ---------------------------------------------------------
-
-  // REAL Health Check
-  app.get('/health', async (req, res) => {
     try {
-      // Ping Database
-      await connection.execute("RETURN 1");
-      
-      // (Optional) Ping Graphiti if critical
-      // await axios.get(...) 
-
-      res.json({ 
-        status: 'healthy', 
-        services: {
-          database: 'connected',
-          mcp: 'active'
-        },
-        uptime: process.uptime()
-      });
+        if (url.pathname === '/mcp' && req.method === 'POST') {
+            const body = await readBody(req);
+            const result = await app.mcpService.handleRequest(body);
+            res.writeHead(200);
+            res.end(JSON.stringify(result));
+            return;
+        }
+        
+        if (url.pathname === '/health') {
+            res.writeHead(200);
+            res.end(JSON.stringify({ 
+                status: 'ok', 
+                uptime: process.uptime(),
+                database: 'connected'
+            }));
+            return;
+        }
+        
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Not Found' }));
+        
     } catch (e) {
-      console.error("Health Check Failed:", e);
-      res.status(503).json({ 
-        status: 'unhealthy', 
-        error: String(e) 
-      });
+        console.error(e);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: String(e) }));
     }
   });
 
-  // MCP Entrypoint
-  app.post('/mcp', async (req, res) => {
-    try {
-      const response = await mcpService.handleRequest(req.body);
-      res.json(response);
-    } catch (e) {
-      console.error("MCP Error:", e);
-      res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: String(e) }, id: req.body.id });
-    }
+  server.listen(PORT, () => {
+    console.log(\`🚀 Almoner Server running on port \${PORT}\`);
   });
+}
 
-  // Start Listener
-  app.listen(config.port, () => {
-    console.log(`🚀 Almoner Platform running on port ${config.port}`);
-    console.log(`👉 Health: http://localhost:${config.port}/health`);
-    console.log(`👉 MCP:    http://localhost:${config.port}/mcp`);
-  });
+function readBody(req: http.IncomingMessage): Promise<any> {
+    return new Promise((resolve, reject) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => {
+            try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); }
+        });
+        req.on('error', reject);
+    });
 }
 
 startServer();

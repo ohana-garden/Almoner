@@ -1,6 +1,12 @@
 import { FalkorDB } from 'falkordb';
 
+/**
+ * GraphConnection - Singleton
+ * Hardened to prevent connection exhaustion and handle driver quirks.
+ */
 export class GraphConnection {
+  private static instance: GraphConnection;
+  
   // Use 'any' for the client to bypass version-specific type mismatches
   private client: any = null;
   private graph: any = null;
@@ -8,48 +14,38 @@ export class GraphConnection {
   
   private config: { url: string; graphName: string };
 
-  constructor() {
-    // 1. Build Config
+  private constructor() {
     const host = process.env.FALKORDB_HOST || 'localhost';
     const port = process.env.FALKORDB_PORT || '6379';
     const pass = process.env.FALKORDB_PASSWORD;
     
-    // Construct URL if not provided explicitly
     let url = process.env.FALKORDB_URL;
     if (!url) {
-      if (pass) {
-        url = `redis://:${pass}@${host}:${port}`;
-      } else {
-        url = `redis://${host}:${port}`;
-      }
+      url = pass ? `redis://:${pass}@${host}:${port}` : `redis://${host}:${port}`;
     }
     
     const graphName = process.env.FALKORDB_GRAPH || 'AlmonerGraph';
     this.config = { url, graphName };
   }
 
-  /**
-   * ESTABLISH CONNECTION
-   * Tries Static Factory first (modern), then Constructor+Connect (legacy).
-   */
+  public static getInstance(): GraphConnection {
+    if (!GraphConnection.instance) {
+      GraphConnection.instance = new GraphConnection();
+    }
+    return GraphConnection.instance;
+  }
+
   async connect(): Promise<void> {
     if (this.isConnected && this.client) return;
 
     try {
       console.log(`🔌 Connecting to FalkorDB at ${this.config.url}...`);
 
-      // ---------------------------------------------------------
-      // STRATEGY: Hybrid Detection
-      // ---------------------------------------------------------
-      // Check if static connect exists (Modern FalkorDB-TS)
+      // Hybrid Detection Strategy for Driver
       if (typeof (FalkorDB as any).connect === 'function') {
-        this.client = await (FalkorDB as any).connect({
-          url: this.config.url
-        });
-      } 
-      // Fallback: Constructor + .connect() (Legacy/Redis-style)
-      else {
-        this.client = new FalkorDB(); // No args to constructor (EventEmitter)
+        this.client = await (FalkorDB as any).connect({ url: this.config.url });
+      } else {
+        this.client = new FalkorDB();
         if (typeof this.client.connect === 'function') {
              await this.client.connect({ url: this.config.url });
         }
@@ -71,22 +67,15 @@ export class GraphConnection {
     }
   }
 
-  /**
-   * EXECUTE CYPHER QUERY
-   */
   async execute(query: string, params: Record<string, any> = {}): Promise<any[]> {
     if (!this.isConnected || !this.graph) {
         await this.connect();
     }
 
     try {
-      // Execute query
       const result = await this.graph.query(query, { params });
-      
-      // Normalize output based on driver version
       if (result && Array.isArray(result.data)) return result.data;
       if (Array.isArray(result)) return result;
-      
       return []; 
     } catch (error) {
       console.error('❌ Query Failed:', { query, params: JSON.stringify(params), error });
@@ -104,4 +93,10 @@ export class GraphConnection {
       this.client = null;
     }
   }
+  
+  static createNew(): GraphConnection {
+      return GraphConnection.getInstance();
+  }
 }
+
+export const configFromEnv = () => GraphConnection.getInstance()['config'];
