@@ -6,24 +6,25 @@ interface KnowledgeGraphConfig {
 }
 
 export class KalaKnowledgeEngine {
-  private client: FalkorDB;
+  private client: any; 
   private graphName: string;
-  private isConnected: boolean = false;
+  private url: string;
 
   constructor(config: KnowledgeGraphConfig) {
-    this.client = new FalkorDB(config.url);
+    this.url = config.url;
     this.graphName = config.graphName;
   }
 
   async connect() {
-    if (!this.isConnected) {
+    if (!this.client) {
       try {
-        await this.client.connect();
-        this.isConnected = true;
+        // FalkorDB 3.x+ uses a static connect method that accepts an options object
+        this.client = await FalkorDB.connect({ 
+            url: this.url 
+        });
         console.log(`[Kala] Connected to FalkorDB: ${this.graphName}`);
       } catch (error) {
         console.error('[Kala] Connection failed:', error);
-        // We do not throw here to allow the server to start even if DB is temporarily down
       }
     }
   }
@@ -31,6 +32,8 @@ export class KalaKnowledgeEngine {
   // Ingest unstructured text into the graph
   async ingestKnowledge(entity: string, relation: string, target: string, metadata: any = {}) {
     await this.connect();
+    if (!this.client) return { error: 'Database not connected' };
+
     const query = `
       MERGE (e:Entity {name: $entity})
       MERGE (t:Entity {name: $target})
@@ -38,7 +41,6 @@ export class KalaKnowledgeEngine {
       SET r += $metadata, e.lastUpdated = timestamp()
     `;
     
-    // Select the graph before querying
     const graph = this.client.selectGraph(this.graphName);
     await graph.query(query, { params: { entity, target, metadata } });
     
@@ -48,6 +50,8 @@ export class KalaKnowledgeEngine {
   // Semantic search over the graph
   async findRelatedEntities(entityName: string, depth: number = 2) {
     await this.connect();
+    if (!this.client) return [];
+
     const query = `
       MATCH (source:Entity {name: $entityName})-[r*1..${depth}]-(target:Entity)
       RETURN source, r, target
