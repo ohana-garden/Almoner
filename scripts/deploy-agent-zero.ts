@@ -1,115 +1,123 @@
-/**
- * Script to deploy Agent Zero to the existing Railway project
- */
 import 'dotenv/config';
+import * as readline from 'readline';
 
-// Ensure fetch is available (Node 18+)
 const fetch = globalThis.fetch;
-
 const API_URL = 'https://backboard.railway.com/graphql/v2';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'ohana-garden/Almoner';
 const BRANCH = process.env.RAILWAY_BRANCH || 'main';
 
-async function gqlRequest(query: string, variables?: any) {
-  const token = process.env.RAILWAY_API_TOKEN;
-  if (!token) {
-    console.error('❌ Error: RAILWAY_API_TOKEN is missing from .env file.');
-    process.exit(1);
-  }
-  
+function prompt(query: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl.question(query, (ans) => { rl.close(); resolve(ans.trim()); }));
+}
+
+async function gqlRequest(query: string, variables: any = {}, token: string) {
   const res = await fetch(API_URL, {
     method: 'POST',
-    headers: { 
-      'Authorization': `Bearer ${token}`, 
-      'Content-Type': 'application/json' 
-    },
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
   });
-  
   const json = await res.json() as any;
   if (json.errors) throw new Error(json.errors[0].message);
   return json.data;
 }
 
+async function getValidatedToken(): Promise<string> {
+  console.log("\n⚠️  Railway API Token required.");
+  while (true) {
+    const token = await prompt("Paste your Railway API Token: ");
+    if (!token) continue;
+    try {
+      const data = await gqlRequest(`query { me { email } }`, {}, token);
+      console.log(`✅ Authenticated as ${data.me.email}\n`);
+      return token;
+    } catch (e) { console.error(`❌ Authorization failed. Try again.`); }
+  }
+}
+
 async function main() {
-  console.log('🚀 Deploying Agent Zero to Railway...');
+  const token = await getValidatedToken();
+  console.log('🚀 Starting Deployment...');
 
-  // 1. Get Project ID (assume the one with Almoner)
-  const me = await gqlRequest(`query { me { projects { edges { node { id name services { edges { node { id name } } } } } } } }`);
+  // 1. Get Project ID
+  let projectId = '';
+  console.log('🔍 Scanning projects...');
+  const data = await gqlRequest(`query { projects { edges { node { id name services { edges { node { id name } } } } } } }`, {}, token);
   
-  // Find the project containing 'Almoner' service
-  const project = me.me.projects.edges.find((p: any) => 
-    p.node.services.edges.some((s: any) => s.node.name.toLowerCase().includes('almoner'))
-  )?.node;
+  const allProjects = data.projects.edges.map((e: any) => e.node);
+  const almonerProject = allProjects.find((p: any) => p.services.edges.some((s: any) => s.node.name.toLowerCase().includes('almoner')));
 
-  if (!project) throw new Error('Could not find Railway project with Almoner service');
-  console.log(`✅ Found Project: ${project.name} (${project.id})`);
-
-  // 2. Check if Agent Zero exists
-  const existingService = project.services.edges.find((s: any) => s.node.name === 'Agent Zero')?.node;
-  
-  if (existingService) {
-    console.log(`ℹ️  Agent Zero service already exists (${existingService.id})`);
-    return;
+  if (almonerProject) {
+    console.log(`✅ Auto-detected Project: ${almonerProject.name}`);
+    projectId = almonerProject.id;
+  } else {
+    console.log(`⚠️  Could not auto-detect project.`);
+    console.log(`ℹ️  Paste the ID from your URL: railway.com/project/<UUID>`);
+    while (!projectId) projectId = await prompt("Enter Project ID: ");
   }
 
-  // 3. Create Service
-  console.log('Creating new Agent Zero service...');
-  const createRes = await gqlRequest(`
-    mutation($projectId: String!, $repo: String!, $branch: String!) {
-      serviceCreate(input: {
-        projectId: $projectId
-        name: "Agent Zero"
-        source: {
-          repo: $repo
-        }
-        branch: $branch
-      }) {
-        id
-      }
-    }
-  `, { projectId: project.id, repo: GITHUB_REPO, branch: BRANCH });
+  // 2. Check/Create Agent Zero Service
+  console.log(`\nUsing Project ID: ${projectId}`);
+  const projectDetails = await gqlRequest(`query($id: String!) { project(id: $id) { services { edges { node { id name } } } } }`, { id: projectId }, token);
+  let serviceId = projectDetails.project.services.edges.find((s: any) => s.node.name === 'Agent Zero')?.node?.id;
   
-  const serviceId = createRes.serviceCreate.id;
-  console.log(`✅ Created Service: ${serviceId}`);
-
-  // 4. Configure Service (Root Directory)
-  console.log('Configuring Root Directory...');
-  await gqlRequest(`
-    mutation($serviceId: String!) {
-      serviceUpdate(id: $serviceId, input: { rootDirectory: "agent-zero-service" }) {
-        id
+  if (serviceId) {
+    console.log(`ℹ️  Agent Zero service found (${serviceId})`);
+  } else {
+    console.log('✨ Creating new Agent Zero service...');
+    const createRes = await gqlRequest(`
+      mutation($projectId: String!, $repo: String!, $branch: String!) {
+        serviceCreate(input: { projectId: $projectId, name: "Agent Zero", source: { repo: $repo }, branch: $branch }) { id }
       }
-    }
-  `, { serviceId });
+    `, { projectId, repo: GITHUB_REPO, branch: BRANCH }, token);
+    serviceId = createRes.serviceCreate.id;
+    console.log(`✅ Service Created: ${serviceId}`);
+  }
 
-  // 5. Add Domain
-  console.log('Generating public domain...');
-  const envRes = await gqlRequest(`query($projectId: String!) { project(id: $projectId) { environments { edges { node { id name } } } } }`, { projectId: project.id });
+  // 3. Inject Variables (OpenAI Key + Root Directory)
+  console.log('🔐 Configuring Environment Variables...');
+  const envRes = await gqlRequest(`query($projectId: String!) { project(id: $projectId) { environments { edges { node { id name } } } } }`, { projectId }, token);
   const envId = envRes.project.environments.edges[0].node.id;
 
-  try {
-    const domainRes = await gqlRequest(`
-      mutation($environmentId: String!, $serviceId: String!) {
-        serviceDomainCreate(input: { environmentId: $environmentId, serviceId: $serviceId }) {
-          domain
-        }
+  const vars = {
+    "OPENAI_API_KEY": process.env.OPENAI_API_KEY || "",
+    "RAILWAY_ROOT": "agent-zero-service" // Sets root directory via Env Var to avoid Schema issues
+  };
+
+  for (const [key, val] of Object.entries(vars)) {
+    if (!val) {
+        console.warn(`⚠️  Skipping ${key} (Not found in local env)`);
+        continue;
+    }
+    await gqlRequest(`
+      mutation($projectId: String!, $environmentId: String!, $serviceId: String!, $key: String!, $val: String!) {
+        variableUpsert(input: { projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId, name: $key, value: $val })
       }
-    `, { environmentId: envId, serviceId });
-    console.log(`✅ Public Domain: https://${domainRes.serviceDomainCreate.domain}`);
-  } catch (e) {
-    console.log('ℹ️  Domain creation note:', e);
+    `, { projectId, environmentId: envId, serviceId, key, val }, token);
+    console.log(`   ✅ Set ${key}`);
   }
 
-  // 6. Deploy
-  console.log('Triggering deployment...');
+  // 4. Deploy
+  console.log('🚀 Triggering Deployment...');
   await gqlRequest(`
     mutation($environmentId: String!, $serviceId: String!) {
       serviceInstanceRedeploy(environmentId: $environmentId, serviceId: $serviceId)
     }
-  `, { environmentId: envId, serviceId });
+  `, { environmentId: envId, serviceId }, token);
 
-  console.log('🎉 Agent Zero is deploying! Check Railway dashboard.');
+  // 5. Domain
+  try {
+    const domainRes = await gqlRequest(`
+      mutation($environmentId: String!, $serviceId: String!) {
+        serviceDomainCreate(input: { environmentId: $environmentId, serviceId: $serviceId }) { domain }
+      }
+    `, { environmentId: envId, serviceId }, token);
+    console.log(`\n🎉 Success! Agent Zero is deploying.`);
+    console.log(`👉 URL: https://${domainRes.serviceDomainCreate.domain}`);
+  } catch (e) {
+    console.log(`\n🎉 Success! Agent Zero is deploying.`);
+    console.log(`ℹ️  (Check Railway Dashboard for URL)`);
+  }
 }
 
-main().catch(console.error);
+main().catch((e) => { console.error(`\n❌ Script Failed: ${e.message}`); process.exit(1); });

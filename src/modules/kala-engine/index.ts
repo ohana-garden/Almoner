@@ -1,4 +1,4 @@
-import { Client } from 'falkordb';
+import { FalkorDB } from 'falkordb';
 
 interface KnowledgeGraphConfig {
   url: string;
@@ -6,12 +6,12 @@ interface KnowledgeGraphConfig {
 }
 
 export class KalaKnowledgeEngine {
-  private client: Client;
+  private client: FalkorDB;
   private graphName: string;
   private isConnected: boolean = false;
 
   constructor(config: KnowledgeGraphConfig) {
-    this.client = new Client({ url: config.url });
+    this.client = new FalkorDB(config.url);
     this.graphName = config.graphName;
   }
 
@@ -23,7 +23,7 @@ export class KalaKnowledgeEngine {
         console.log(`[Kala] Connected to FalkorDB: ${this.graphName}`);
       } catch (error) {
         console.error('[Kala] Connection failed:', error);
-        throw error;
+        // We do not throw here to allow the server to start even if DB is temporarily down
       }
     }
   }
@@ -38,9 +38,9 @@ export class KalaKnowledgeEngine {
       SET r += $metadata, e.lastUpdated = timestamp()
     `;
     
-    await this.client.query(query, { 
-      params: { entity, target, metadata } 
-    });
+    // Select the graph before querying
+    const graph = this.client.selectGraph(this.graphName);
+    await graph.query(query, { params: { entity, target, metadata } });
     
     return { status: 'ingested', entity, relation, target };
   }
@@ -54,9 +54,8 @@ export class KalaKnowledgeEngine {
       LIMIT 20
     `;
     
-    const result = await this.client.query(query, { 
-      params: { entityName } 
-    });
+    const graph = this.client.selectGraph(this.graphName);
+    const result = await graph.query(query, { params: { entityName } });
     
     return result;
   }
