@@ -1,67 +1,47 @@
-/**
- * Matching Engine - V2 (Vector Enabled)
- * Adds Semantic Search capability to the Cypher queries.
- */
+import { KalaKnowledgeEngine } from '../kala-engine';
 
-import type { GraphConnection } from '../graph-core';
-import type { Grant, GrantMatch, MatchFilters } from '../../types/nodes';
-
-export interface MatchScore {
-  overall: number;
-  factors: { focusAreaMatch: number; vectorScore: number };
-  explanation: string[];
+interface Opportunity {
+  id: string;
+  title: string;
+  description: string;
+  vectors?: number[];
 }
 
 export class MatchingEngine {
-  constructor(private connection: GraphConnection) {}
+  private kala: KalaKnowledgeEngine;
 
-  async matchGrantsForOrg(orgId: string, filters: MatchFilters = {}): Promise<any[]> {
-    const cypher = `
-      MATCH (o:Org {id: $orgId})
-      MATCH (g:Grant)
-      OPTIONAL MATCH (f:Funder)-[:OFFERS]->(g)
-      
-      WHERE g.deadline >= $now
-      AND ($minAmount IS NULL OR g.amountMax >= $minAmount)
-      
-      WITH g, f, o,
-           size([area IN o.focusAreas WHERE area IN g.focusAreas]) as sharedAreas,
-           size(g.focusAreas) as totalGrantAreas
-      
-      WITH g, f, o, 
-           CASE WHEN totalGrantAreas > 0 
-                THEN toFloat(sharedAreas) / totalGrantAreas 
-                ELSE 0.0 
-           END as keywordScore
-           
-      WITH g, f, keywordScore, (keywordScore) as finalScore
-      
-      WHERE finalScore >= $minScore
-      
-      RETURN g, f.id as funderId, f.name as funderName, finalScore, keywordScore
-      ORDER BY finalScore DESC
-      LIMIT 50
-    `;
-
-    const results = await this.connection.execute(cypher, {
-      orgId,
-      now: new Date().toISOString(),
-      minAmount: filters.minAmount ?? null,
-      minScore: filters.minScore ?? 0.1
-    });
-
-    return results.map(row => ({
-      grant: row.g.properties,
-      score: {
-        overall: row.finalScore,
-        factors: { focusAreaMatch: row.keywordScore, vectorScore: 0 },
-        explanation: [\`Keyword Match: \${(row.keywordScore*100).toFixed(0)}%\`]
-      },
-      funderName: row.funderName
-    }));
+  constructor(kala: KalaKnowledgeEngine) {
+    this.kala = kala;
   }
-}
 
-export function createMatchingEngine(connection: GraphConnection) {
-  return new MatchingEngine(connection);
+  // Calculate compatibility score between a user profile and an opportunity
+  async calculateMatchScore(userProfile: any, opportunity: Opportunity): Promise<number> {
+    // 1. Keyword Overlap
+    const keywords = userProfile.interests || [];
+    const text = (opportunity.title + ' ' + opportunity.description).toLowerCase();
+    
+    let matchCount = 0;
+    for (const word of keywords) {
+      if (text.includes(word.toLowerCase())) {
+        matchCount++;
+      }
+    }
+    
+    // Simple heuristic score (0.0 to 1.0)
+    const baseScore = Math.min(matchCount * 0.2, 1.0);
+    return baseScore;
+  }
+
+  // Find opportunities relevant to a specific non-profit organization
+  async findMatchesForOrganization(orgId: string) {
+    // In a real system, we'd fetch the org profile first
+    // For now, we simulate a graph lookup
+    const graphResults = await this.kala.findRelatedEntities(orgId, 1);
+    
+    return {
+      orgId,
+      matches: [],
+      graphContext: graphResults
+    };
+  }
 }
