@@ -17,17 +17,17 @@ RUN /opt/venv-a0/bin/pip install "supervisor==4.2.5"
 RUN cp /opt/venv-a0/bin/supervisord /usr/bin/supervisord &&     cp /opt/venv-a0/bin/supervisorctl /usr/bin/supervisorctl
 
 # --- 4. BUILD-TIME LOBOTOMY ---
-# Kill the watchdog and neuter the search tool config
+# Disable watchdog and neuter searxng to prevent crash loops
 RUN rm -f /etc/supervisor/conf.d/event_listener.conf
 RUN find /etc/supervisor/conf.d/ -type f -print0 | xargs -0 sed -i '/\[program:run_searxng\]/,/command=/s|command=.*|command=/bin/sleep infinity|'
 
 # --- 5. CLEANUP ---
-# Remove EVERY library that deals with math or vectors to ensure clean slate
 RUN rm -rf /opt/venv-a0/lib/python3.12/site-packages/numpy*     /opt/venv-a0/lib/python3.12/site-packages/scipy*     /opt/venv-a0/lib/python3.12/site-packages/sklearn*     /opt/venv-a0/lib/python3.12/site-packages/sentence_transformers*     /opt/venv-a0/lib/python3.12/site-packages/accelerate*     /opt/venv-a0/lib/python3.12/site-packages/transformers*     /opt/venv-a0/lib/python3.12/site-packages/lxml*     /opt/venv-a0/lib/python3.12/site-packages/faiss*     /opt/venv-a0/lib/python3.12/__pycache__
 
-# --- 6. INSTALL STABLE STACK (The "Golden Ratio") ---
-# Added faiss-cpu==1.7.4 to fix the AVX512 crash
-RUN /opt/venv-a0/bin/pip install     "numpy==1.26.3"     "scipy==1.12.0"     "scikit-learn==1.4.2"     "sentence-transformers==2.7.0"     "transformers==4.40.1"     "accelerate==0.30.0"     "lxml==5.2.1"     "faiss-cpu==1.7.4"
+# --- 6. INSTALL DEPENDENCIES (Python 3.12 Compatible) ---
+# faiss-cpu==1.8.0 is the first version to support Python 3.12
+# We pin numpy to 1.26.3 to prevent the Recursion Error with Scipy
+RUN /opt/venv-a0/bin/pip install     "numpy==1.26.3"     "scipy==1.12.0"     "scikit-learn==1.4.2"     "sentence-transformers==2.7.0"     "transformers==4.40.1"     "accelerate==0.30.0"     "lxml==5.2.1"     "faiss-cpu==1.8.0"
 
 # --- 7. SETUP ---
 RUN mkdir -p /storage && chmod 777 /storage
