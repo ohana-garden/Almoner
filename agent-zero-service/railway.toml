@@ -1,17 +1,8 @@
 [build]
-builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# 🛑 CRITICAL: We explicitly run supervisord. 
-# This runs Nginx and the Agent together.
-startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
-
-# Resilience settings
-healthcheckPath = "/"
-healthcheckTimeout = 100
+# Point to our new setup script
+startCommand = "/bin/sh railway_init.sh"
 restartPolicyType = "ON_FAILURE"
-
-# Architecture settings
-numReplicas = 1
-sleepApplication = false
+healthcheckTimeout = 100

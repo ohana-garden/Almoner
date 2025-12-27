@@ -1,16 +1,19 @@
 FROM agent0ai/agent-zero:latest
 
-# 1. FIX PATH: Make sure 'python' executes from the virtual environment
+# Fix Path
 ENV PATH="/opt/venv-a0/bin:$PATH"
 
-# 2. FIX DEPENDENCIES: Resolve the Numpy ABI mismatch crash
-# We verify this works by pinning compatible versions
+# Fix Dependencies
 RUN /opt/venv-a0/bin/pip install "numpy<2"
 
-# 3. PREPARE STORAGE: Create mount points with open permissions
-# This prevents permission errors when you attach Volumes later
-RUN mkdir -p /a0/work_dir /a0/memory /a0/logs &&     chmod -R 777 /a0/work_dir /a0/memory /a0/logs
+# Prepare Storage & Permissions
+# We create /storage so the volume has a place to mount
+RUN mkdir -p /storage && chmod 777 /storage
 
-# 4. NETWORK: Inform Railway which port to proxy
+# Copy our init script
+COPY railway_init.sh /railway_init.sh
+RUN chmod +x /railway_init.sh
+
+# Network
 ENV PORT=80
 EXPOSE 80
