@@ -1,0 +1,8 @@
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
