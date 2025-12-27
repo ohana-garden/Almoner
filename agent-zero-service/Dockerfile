@@ -1,18 +1,14 @@
-# 1. Base Image
+# 1. Base Image: Use the verified agent0ai image
 FROM agent0ai/agent-zero:latest
 
-# 2. RUNTIME ENV: Add the virtual environment to PATH.
-# This ensures that when Supervisord spawns processes, they find Python.
-ENV PATH="/opt/venv-a0/bin:$PATH"
-
-# 3. COMPATIBILITY FIX: Downgrade Numpy.
-# The official image has a library mismatch (Numpy 2.0 vs Scikit-learn).
-# We fix this layer explicitly using the absolute path to pip.
-RUN /opt/venv-a0/bin/pip install "numpy<2"
-
-# 4. NETWORKING: Expose Port 80.
-# As noted in Section 6.1 of your guide, the Edge Proxy routes traffic here.
+# 2. Network Config: Hardcode Port 80 for the Edge Proxy (Section 6.1)
 ENV PORT=80
 EXPOSE 80
 
-# ⚠️ Note: No CMD/ENTRYPOINT here. We rely entirely on railway.toml.
+# 3. Runtime Fix: Add the virtual environment to PATH so 'python' is found
+ENV PATH="/opt/venv-a0/bin:$PATH"
+
+# 4. Dependency Fix: Downgrade Numpy using the ABSOLUTE pip path to prevent build failures
+RUN /opt/venv-a0/bin/pip install "numpy<2"
+
+# Note: We do not set CMD here. We rely on railway.json (Section 4.1).
