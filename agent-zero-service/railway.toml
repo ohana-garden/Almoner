@@ -2,7 +2,6 @@
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Point to our new setup script
-startCommand = "/bin/sh railway_init.sh"
+startCommand = "/bin/sh /railway_init.sh"
 restartPolicyType = "ON_FAILURE"
-healthcheckTimeout = 100
+healthcheckTimeout = 300
