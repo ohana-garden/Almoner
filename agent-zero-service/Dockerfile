@@ -1,15 +1,15 @@
-# 1. Base image
 FROM frdel/agent-zero:latest
 
-# 2. Add the virtual environment to the System PATH (fixes runtime)
+# 1. RUNTIME CONFIG: Add venv to PATH so 'python' exists for the app
 ENV PATH="/opt/venv-a0/bin:$PATH"
 
-# 3. Apply the Numpy Hotfix using the FULL PATH (fixes build)
-RUN /opt/venv-a0/bin/pip install "numpy<2"
-
-# 4. Railway Configuration
+# 2. RAILWAY CONFIG: Set Port 80 so Railway detects it automatically
 ENV PORT=80
 EXPOSE 80
 
-# 5. Explicitly start the UI
-CMD ["python", "run_ui.py"]
+# 3. CRASH FIX: Downgrade Numpy using the ABSOLUTE path to pip
+# We use the full path so the build never fails with "pip not found"
+RUN /opt/venv-a0/bin/pip install "numpy<2"
+
+# 4. We rely on the base image's supervisord to start Nginx + App.
+# This ensures the web server starts correctly.
