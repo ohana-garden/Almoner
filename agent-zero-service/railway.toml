@@ -1,16 +1,17 @@
 [build]
+builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# 1. OVERRIDE: This explicitly kills the "python main.py" default.
-# We point directly to the process manager used by the official image.
+# 🛑 CRITICAL: We explicitly run supervisord. 
+# This runs Nginx and the Agent together.
 startCommand = "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
 
-# 2. RESILIENCE: As per Section 5.3 of your guide.
-restartPolicyType = "ON_FAILURE"
+# Resilience settings
+healthcheckPath = "/"
 healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
 
-# 3. NETWORKING: The guide warns about port binding rules (Section 6.1).
-# We hardcode port 80 to match the container's internal Nginx.
+# Architecture settings
 numReplicas = 1
 sleepApplication = false
