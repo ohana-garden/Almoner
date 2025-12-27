@@ -1,35 +1,15 @@
-FROM python:3.11-slim
+# 1. Use the official image as the starting point
+FROM agent0ai/agent-zero:latest
 
-WORKDIR /app
+# 2. ⚡ HOTFIX: Downgrade Numpy to version 1.x
+# The official image has Numpy 2.0 which causes the "All ufuncs" crash.
+# We explicitly target the internal virtual environment pip.
+RUN /opt/venv-a0/bin/pip install "numpy<2"
 
-# 1. Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    curl \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+# 3. Railway Configuration
+# The official image listens on port 80. We expose it for Railway.
+ENV PORT=80
+EXPOSE 80
 
-# 2. Copy requirements first (for caching)
-COPY requirements.txt .
-
-# 3. Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 4. Install Playwright browsers (Crucial for Agent Zero web browsing)
-RUN playwright install --with-deps chromium
-
-# 5. Copy the actual application code
-COPY . .
-
-# 6. Set Environment Variables
-ENV PORT=5000
-ENV PYTHONUNBUFFERED=1
-ENV HOST=0.0.0.0
-
-# 7. Expose the port
-EXPOSE 5000
-
-# 8. Start the UI
-CMD ["python", "run_ui.py"]
+# 4. We inherit the default start command from the base image, 
+# so no need to specify CMD here.
