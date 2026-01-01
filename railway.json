@@ -1,12 +1,43 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "startCommand": "npm run start",
-    "healthcheckPath": "/health",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+  "services": {
+    "agent-zero": {
+      "variables": {
+        "AGENT_NAME": "Orchestrator-A0",
+        "MCP_SERVERS_JSON": "{\"graphiti\":{\"type\":\"sse\",\"url\":\"http://graphiti-mind.railway.internal:8080/mcp/\"}}",
+        "PYTHONPATH": "/a0/instruments/custom:$PYTHONPATH",
+        "PROJECT_ROOT": "/a0/usr/projects/federated-community",
+        "MEM_STORAGE_PATH": "/a0/memory",
+        "OPENAI_API_KEY": "${{secrets.OPENAI_API_KEY}}"
+      },
+      "volumes": [
+        {
+          "mountPath": "/a0",
+          "name": "a0-persistent-data"
+        }
+      ]
+    },
+    "graphiti-mind": {
+      "variables": {
+        "FALKORDB_URI": "falkor://falkordb.railway.internal:6379",
+        "DATABASE_PROVIDER": "falkordb",
+        "GRAPH_NAME": "almoner",
+        "PORT": "8080",
+        "OPENAI_API_KEY": "${{secrets.OPENAI_API_KEY}}",
+        "LLM_PROVIDER": "openai",
+        "EMBEDDING_PROVIDER": "openai"
+      }
+    },
+    "falkordb": {
+      "variables": {
+        "PORT": "6379"
+      },
+      "volumes": [
+        {
+          "mountPath": "/data",
+          "name": "falkor-storage"
+        }
+      ]
+    }
   }
 }
